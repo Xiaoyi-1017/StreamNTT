@@ -66,7 +66,7 @@ def gen_config(ch: int, group_num: int, group_ch_num: int) -> None:
     factory = get_u280_vitis_device_factory(VITIS_PLATFORM)
     #Reserving LUTs/FFs for HBM memory sub-system
     factory.reduce_slot_area(0, 0, lut=5000*left_ch, ff=6500*left_ch)
-    factory.reduce_slot_area(1, 0, lut=5000*right_ch, ff=6500*right_ch)
+    factory.reduce_slot_area(1, 0, lut=5000*right_ch+10000, ff=6500*right_ch)
     #Excluding DSPs on the boundary between dynamic/static region
     factory.reduce_slot_area(1, 1, dsp=100)
     factory.generate_virtual_device(Path(DEVICE_CONFIG))

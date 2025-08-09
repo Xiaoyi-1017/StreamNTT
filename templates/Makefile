@@ -116,6 +116,10 @@ run-xo:
 	fi
 	@echo "XO simulation complete."
 
+# Run XO GUI simulation
+run-xo-gui:
+	vivado -mode gui -source $(SIM_XO_DIR)/output/run/run_cosim.tcl
+
 # Optimize design and build xo file
 build-xo-opt:
 	@echo "Making configuration files for rapidstream..."

@@ -35,7 +35,7 @@ constexpr int log2(int x) {
 #elif MOD == 3221225473
     #define USE_Q3221225473
 #else
-    #error "Unsupported mod value. Please define MOD as 12289 or 8380417."
+    #error "Unsupported mod value. Please define MOD as 12289 or 8380417 or 3221225473."
 #endif
 
 // Number of coefficients
@@ -50,8 +50,8 @@ constexpr int WIDTH = 2*BU;
 constexpr int DEPTH = n / WIDTH;
 constexpr int logDEPTH = {logDEPTH};
 
-constexpr int num_spat_stage = logBU + 1;
-constexpr int num_temp_stage = logN - (logBU + 1);
+constexpr int num_x_stage = logBU + 1;
+constexpr int num_l_stage = logN - (logBU + 1);
 
 constexpr int CH = {CH};
 
@@ -76,6 +76,5 @@ constexpr HostData psi = {PSI};
 
 // Bit reversed array of twiddle factors
 const Data tw_factors[n] = {{TW_FACTORS}};
-
 
 #endif // NTT_H

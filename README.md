@@ -23,20 +23,20 @@ Please use generate_code.py to automatically generate an NTT project.
 | Argument | Description | Supported Values | Default |
 |----------|-------------|-----------------|---------|
 | **N** | Transform size (polynomial degree) | 256, 512, 1024 | 1024 |
-| **q** | Prime modulus | 12289, 8380417, 3221225473 | 12289 |
-| **BU** | Number of butterfly units per stage | 1, 2, 4, 8, 16, 32 | 16 |
-| **CH** | Number of input HBM channels <br> (Total of 2×CH channels are used for input & output) | 1, 2, 4, 8, 16 | 8 |
+| **q** | Prime modulus | 12289, 8380417, 3221225473 | 3221225473 |
+| **BU** | Number of butterfly units per stage | 1, 2, 4, 8, 16, 32 | 4 |
+| **CH** | Number of input HBM channels <br> (Total of 2×CH channels are used for input & output) | 1, 2, 4, 8, 16 | 16 |
+| **RATE** | Effective data transfer rate of HBM channel | 0.5, 1.0 | 0.5 |
 
 Example command (with default values):
 ```bash
-./generate_code.py -N 1024 -q 12289 -BU 16 -CH 8 
+./generate_code.py -N 1024 -q 3221225473 -BU 4 -CH 16 -RATE 0.5
 ```
 
 Example console message:
 ```
-Values used -> N: 1024, q: 12289, HostData: uint16_t, BU: 16, CH: 8, veclen: 32
-Number of NTT cores: 8
-Creating a new folder: N1024_BU16_CH8_q12289
+Values used -> N: 1024, q: 3221225473, HostData: uint32_t, BU: 4, CH: 16, RATE: 0.5, veclen: 16
+Creating a new folder: N1024_BU4_CH16_q3221225473
 ```
 
 ## Compilation & Execution 

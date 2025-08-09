@@ -83,7 +83,7 @@ def generate_makefile(CH, GROUP_NUM, GROUP_CH_NUM, folder):
     #print(f"{output_file} has been generated.")
 
 
-def generate_header(n, mod, K, bits, data_format, BU, CH, folder):
+def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     WIDTH = 2*BU
     DEPTH = n / WIDTH
     logDEPTH = int(math.log2(DEPTH))
@@ -94,8 +94,7 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, folder):
     DATA_BSIZE = int(bits/8)
     DataCHLen = int(64 / DATA_BSIZE)
 
-    DRAM_RATE = 0.5
-    EffDataCHLen = round_to_nearest_power_of_2(DataCHLen*DRAM_RATE)
+    EffDataCHLen = round_to_nearest_power_of_2(DataCHLen*RATE)
     print(f"DataCHLen: {DataCHLen}, EffDataCHLen: {EffDataCHLen}")
 
     NUM_CORE = int(CH * EffDataCHLen / (2*BU))
@@ -165,6 +164,7 @@ def main():
     # parser.add_argument("-bits", type=int, default=32, help="Coefficient bit-width")
     parser.add_argument("-BU", type=int, default=16, help="The size of BU.")
     parser.add_argument("-CH", type=int, default=8, help="The number of memory channels (input) ")
+    parser.add_argument("-RATE", type=float, default=0.5, help="Effective DRAM transfer rate (0 - 1.0)")
 
     args = parser.parse_args()
 
@@ -173,6 +173,7 @@ def main():
     # bits = args.bits
     BU = args.BU
     CH = args.CH
+    RATE = args.RATE
     
     K, bits, data_format = check_q_and_data_length(mod)    
 
@@ -182,7 +183,7 @@ def main():
         print(f"{CH} * {veclen} should be divisible by {2 * BU}. Design not feasible.")
         return
 
-    print(f"Values used -> N: {N}, q: {mod}, HostData: {data_format}, BU: {BU}, CH: {CH}, veclen: {veclen}")
+    print(f"Values used -> N: {N}, q: {mod}, HostData: {data_format}, BU: {BU}, CH: {CH}, RATE: {RATE}, veclen: {veclen}")
 
     # Create new folder
     folder_name = f"N{N}_BU{BU}_CH{CH}_q{mod}"
@@ -205,7 +206,7 @@ def main():
 
         # Generate new files in the folder
         generate_ini(CH, folder_name)
-        generate_header(N, mod, K, bits, data_format, BU, CH, folder_name)
+        generate_header(N, mod, K, bits, data_format, BU, CH, RATE, folder_name)
 
  
 if __name__ == "__main__":

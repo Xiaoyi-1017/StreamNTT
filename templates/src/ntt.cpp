@@ -124,10 +124,10 @@ void butterfly(Data even, Data odd, Data tw_factor, Data *out_even, Data* out_od
 }
 
 
-void bf_unit(const int stage, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream)
+void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream)
 {
 	const int stage_shift = stage + 1;
-	const int shift = num_temp_stage - stage_shift;
+	const int shift = num_l_stage - stage_shift;
 	const ap_uint<logDEPTH> mask = (1<<shift) -1;
 
 	// memory for entry with EVEN indices
@@ -249,14 +249,14 @@ BF_UNIT_LOOP:
 	}
 }
 
-void temporal_stage(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
+void l_stages(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
 
 	tapa::task()
-		.invoke<tapa::detach, BU>(bf_unit, stage, input_stream, output_stream)
+		.invoke<tapa::detach, BU>(bf_unit, stage, tapa::seq(), input_stream, output_stream)
 	;
 }
 
-void spatial_stages(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2, BU>& output_streams){
+void x_stages(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2, BU>& output_streams){
 
 	const int num_of_stages = logBU + 1;
 	Data mem[num_of_stages+1][WIDTH];
@@ -427,6 +427,113 @@ INPUT_MEM_STAGE_LOOP:
 	}
 }
 
+/*
+void input_mem_stage(tapa::istream<Data2>& i_stream, tapa::ostream<Data2>& o_stream){
+
+	// memory for entry with EVEN indices
+	Data mem0[DEPTH/2]; 
+	Data mem1[DEPTH/2];
+#pragma HLS bind_storage variable=mem0 type=RAM_S2P impl=lutram 
+#pragma HLS bind_storage variable=mem1 type=RAM_S2P impl=lutram 
+
+	// memory for entry with ODD indices
+	Data mem2[DEPTH/2]; 
+	Data mem3[DEPTH/2];
+#pragma HLS bind_storage variable=mem2 type=RAM_S2P impl=lutram 
+#pragma HLS bind_storage variable=mem3 type=RAM_S2P impl=lutram 
+
+	//memory read/write data count
+	ap_uint<logDEPTH> read_idx = 0;     
+	ap_uint<logDEPTH> write_idx = 0;     
+
+	ap_uint<logDEPTH> read_limit = 0;     
+	ap_uint<logDEPTH> write_limit = 0;     
+
+	bool set_read_limit = false;
+	bool set_write_limit = false;
+	bool mem_empty = true;
+
+
+INPUT_MEM_STAGE_LOOP:
+	for(;;){
+#pragma HLS pipeline II = 1
+#pragma HLS dependence variable=mem0 type=inter false
+#pragma HLS dependence variable=mem1 type=inter false
+#pragma HLS dependence variable=mem2 type=inter false
+#pragma HLS dependence variable=mem3 type=inter false
+
+		bool write_safe = write_limit != write_idx || mem_empty == true;
+		bool read_safe = read_limit != read_idx;
+
+		if( set_write_limit == true ){
+			write_limit = read_idx>>1;	
+		}
+		if( set_read_limit == true ){
+			read_limit = write_idx<<1;	
+		}
+
+		if( set_read_limit == true ){
+			mem_empty = false;
+		}
+		else if( set_write_limit == true && write_idx == 0 && read_idx == 0 ){
+			mem_empty = true;
+		}
+		set_write_limit = false;
+		set_read_limit = false;
+
+		if( read_safe == true ){
+			Data data_e;
+			Data data_o;
+
+			ap_uint<logDEPTH> raddr = read_idx(logDEPTH - 1, 1);
+     
+			// For even inputs 0 ~ n/2-1
+			if( read_idx[0] == 0){ // 0, 512 - 2, 514 ...
+				data_e = mem0[raddr];
+				data_o = mem2[raddr];
+			}
+			else{            // 1, 513 - 3, 515 ...
+				data_e = mem1[raddr];
+				data_o = mem3[raddr];
+			}
+
+			Data2 data = (data_o, data_e);
+			o_stream.write(data);
+
+			if( read_idx[0] == 1){    
+				set_write_limit = true;
+			}
+
+			read_idx++;
+		}
+
+		if( write_safe == true && !i_stream.empty() ){
+			Data2 data = i_stream.read();
+			Data data_e = data(K-1,0);
+			Data data_o = data(2*K-1,K);
+
+			ap_uint<logDEPTH> waddr = write_idx(logDEPTH - 2, 0);     
+
+			if( write_idx[logDEPTH - 1] == 0){
+				// For even inputs 0 ~ n/2-1      
+				mem0[waddr] = data_e;
+				mem1[waddr] = data_o;
+			}
+			else{
+				// For odd inputs n/2 ~ n-1
+				mem2[waddr] = data_e;
+				mem3[waddr] = data_o;
+			}
+
+			if( write_idx[logDEPTH - 1] == 1){    
+				set_read_limit = true;
+			}
+
+			write_idx++;
+		}
+	}
+}
+*/
 
 #ifdef MCH
 
@@ -804,12 +911,12 @@ void write_dram_s(tapa::mmap<bits<DataVec>> y, tapa::istreams<DataVec, GROUP_COR
 
 void ntt_core(tapa::istreams<Data2, BU> core_istreams, tapa::ostreams<Data2, BU> core_ostreams){
 
-	tapa::streams<Data2, BU*(num_temp_stage+1), 2> core_streams("core_streams");
+	tapa::streams<Data2, BU*(num_l_stage+1), 2> core_streams("core_streams");
 
 	tapa::task()
 		.invoke<tapa::detach, BU>(input_mem_stage, core_istreams, core_streams)
-		.invoke<tapa::detach, num_temp_stage>(temporal_stage, tapa::seq(), core_streams, core_streams)
-		.invoke<tapa::detach>(spatial_stages, core_streams, core_ostreams); 
+		.invoke<tapa::detach, num_l_stage>(l_stages, tapa::seq(), core_streams, core_streams)
+		.invoke<tapa::detach>(x_stages, core_streams, core_ostreams); 
 }
 
 #ifndef MCH

@@ -30,12 +30,14 @@ constexpr int log2(int x) {
 
 #if MOD == 12289
     #define USE_Q12289
+#elif MOD == 7681
+    #define USE_Q7681
 #elif MOD == 8380417
     #define USE_Q8380417
 #elif MOD == 3221225473
     #define USE_Q3221225473
 #else
-    #error "Unsupported mod value. Please define MOD as 12289 or 8380417 or 3221225473."
+    #error "Unsupported mod value. Please define MOD as 12289 or 7681 or 8380417 or 3221225473."
 #endif
 
 // Number of coefficients

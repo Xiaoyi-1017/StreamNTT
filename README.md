@@ -1,5 +1,5 @@
-# AutoNTT
-Code generator for FPGA NTT accelerator
+# StreamNTT
+Code generator for high-throughput HLS FPGA NTT accelerator
 
 ### Prerequisites
 
@@ -7,9 +7,9 @@ Code generator for FPGA NTT accelerator
 
 - AMD Alveo U280 Platform - https://www.xilinx.com/publications/product-briefs/alveo-u280-product-brief.pdf
 
-- TAPA (0.1.20250513) - https://tapa.readthedocs.io/en/main/
+- TAPA (0.1.20250803) - https://tapa.readthedocs.io/en/main/
 
-- Rapidstream (2025.1.0509, recommended) - https://docs.rapidstream-da.com/
+- Rapidstream (2025.1.0718, recommended) - https://docs.rapidstream-da.com/
 
 ### Install Python Requirements
 ```bash
@@ -23,20 +23,20 @@ Please use generate_code.py to automatically generate an NTT project.
 | Argument | Description | Supported Values | Default |
 |----------|-------------|-----------------|---------|
 | **N** | Transform size (polynomial degree) | 256, 512, 1024 | 1024 |
-| **q** | Prime modulus | 12289, 8380417, 3221225473 | 3221225473 |
-| **BU** | Number of butterfly units per stage | 1, 2, 4, 8, 16, 32 | 4 |
+| **q** | Prime modulus | 12289, 7681, 8380417, 3221225473 | 3221225473 |
+| **BU** | Number of butterfly units per stage | 1, 2, 4, 8, 16, 32 | 8 |
 | **CH** | Number of input HBM channels <br> (Total of 2×CH channels are used for input & output) | 1, 2, 4, 8, 16 | 16 |
 | **RATE** | Effective data transfer rate of HBM channel | 0.5, 1.0 | 0.5 |
 
 Example command (with default values):
 ```bash
-./generate_code.py -N 1024 -q 3221225473 -BU 4 -CH 16 -RATE 0.5
+./generate_code.py -N 1024 -q 3221225473 -BU 8 -CH 16 -RATE 0.5
 ```
 
 Example console message:
 ```
-Values used -> N: 1024, q: 3221225473, HostData: uint32_t, BU: 4, CH: 16, RATE: 0.5, veclen: 16
-Creating a new folder: N1024_BU4_CH16_q3221225473
+Values used -> N: 1024, q: 3221225473, HostData: uint32_t, BU: 8, CH: 16, RATE: 0.5, veclen: 16
+Creating a new folder: N1024_BU8_CH16_q3221225473
 ```
 
 ## Compilation & Execution 

@@ -35,6 +35,44 @@ void reduce(Data coeff, Data tw_factor, Data &remainder){
 	// Calculate y
 	ap_uint<16> y = f + g - q_temp;
 
+        Data q_temp2 = (y > q) ? q : (Data)0;
+	y = y - q_temp2;
+
+        Data q_temp3 = (y < d) ? q : (Data)0;
+	y = y + q_temp3 - d;
+
+#elif defined(USE_Q7681) //Data is 13b
+
+	ap_uint<4> c0 = (ap_uint<4>)z.range(13,13) + z.range(17,17) + z.range(21,21) + z.range(25,25);
+	ap_uint<3> c1 = (ap_uint<3>)z.range(14,14) + z.range(18,18) + z.range(22,22);
+	ap_uint<3> c2 = (ap_uint<3>)z.range(15,15) + z.range(19,19) + z.range(23,23);
+	ap_uint<3> c3 = (ap_uint<3>)z.range(16,16) + z.range(20,20) + z.range(24,24);
+
+	ap_uint<13> d0 = (ap_uint<13>) (z.range(13,13) ? 1    : 0)
+					+ (z.range(17,17) ? 17   : 0)
+					+ (z.range(21,21) ? 273  : 0)
+					+ (z.range(25,25) ? 4369 : 0);
+	ap_uint<9> d1 = (ap_uint<9>) (z.range(14,14) ? 1   : 0)
+					+ (z.range(18,18) ? 17  : 0)
+					+ (z.range(22,22) ? 273 : 0);
+	ap_uint<9> d2 = (ap_uint<9>) (z.range(15,15) ? 1   : 0)
+					+ (z.range(19,19) ? 17  : 0)
+					+ (z.range(23,23) ? 273 : 0);
+	ap_uint<9> d3 = (ap_uint<9>) (z.range(16,16) ? 1   : 0)
+					+ (z.range(20,20) ? 17  : 0)
+					+ (z.range(24,24) ? 273 : 0);
+
+	ap_uint<14> d = ((ap_uint<14>)d0<<0) + ((ap_uint<14>)d1<<1) + ((ap_uint<14>)d2<<2) + ((ap_uint<14>)d3<<3);
+
+	ap_uint<16> g = (ap_uint<16>)z.range(12, 0) + ((ap_uint<16>)c0<<9) + ((ap_uint<16>)c1<<10) + ((ap_uint<16>)c2<<11) + ((ap_uint<16>)c3<<12);
+
+	ap_int<18> y = (ap_int<18>)g - (ap_int<18>)d;
+
+	if (y < 0) y += q;	       
+	if (y >= q) y -= q;
+	if (y >= q) y -= q;
+	if (y >= q) y -= q;
+
 #elif defined(USE_Q8380417) //Data is 23b
 
 	// c = z[45:43} + z[42:33} + z[32:23], max(c) = 2052 (12-bit integer)
@@ -57,6 +95,12 @@ void reduce(Data coeff, Data tw_factor, Data &remainder){
 
 	// Calculate y
 	ap_uint<32> y = f + g - q_temp;
+
+        Data q_temp2 = (y > q) ? q : (Data)0;
+	y = y - q_temp2;
+
+        Data q_temp3 = (y < d) ? q : (Data)0;
+	y = y + q_temp3 - d;
 
 #elif defined(USE_Q3221225473) //Data is 32b
 
@@ -91,15 +135,15 @@ void reduce(Data coeff, Data tw_factor, Data &remainder){
 	// Calculate y
 	ap_uint<33> y = g + h - q_temp;
 
-#else
-	#error "One of USE_Q12289, USE_Q8380417, or USE_Q3221225473 must be defined."
-#endif
-
-        Data q_temp2 = (y > q) ? q : (Data)0;
+	Data q_temp2 = (y > q) ? q : (Data)0;
 	y = y - q_temp2;
 
         Data q_temp3 = (y < d) ? q : (Data)0;
 	y = y + q_temp3 - d;
+#else
+	#error "One of USE_Q12289, USE_Q7681, USE_Q8380417, or USE_Q3221225473 must be defined."
+#endif
+
 
 	remainder =  static_cast<Data>(y);
 }

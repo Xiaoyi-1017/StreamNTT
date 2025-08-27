@@ -7,7 +7,7 @@ from twiddle_generator import get_nth_root_of_unity_and_psi, twiddle_generator_B
 
 def check_q_and_data_length(q):
     
-    q_list = {12289: 14, 8380417: 23, 3221225473: 32}
+    q_list = {12289: 14, 7681: 13, 8380417: 23, 3221225473: 32}
 
     if q not in q_list:
         print(f"Current Q value is not supported")
@@ -109,9 +109,12 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
 
     # it takes too much to calculate psi for large q (3221225473)
     psi = None
-    psi_dict = {12289: {64: 140, 128: 8340, 256: 3400, 512: 1987, 1024: 1945}, 
+    psi_dict = {
+                7681: {64: 3449, 128: 2028, 256: 535},
+                12289: {64: 140, 128: 8340, 256: 3400, 512: 1987, 1024: 1945}, 
                 8380417: {64: 3241972, 128: 1736313, 256: 1921994, 512: 550930, 1024: 1028169},
-                3221225473: {64: 1292405718, 128: 1262731197, 256 : 764652596, 512 : 1365964089, 1024: 1168849724} }
+                3221225473: {64: 1292405718, 128: 1262731197, 256 : 764652596, 512 : 1365964089, 1024: 1168849724}
+               }
     
     if mod in psi_dict:
         if n in psi_dict[mod]:
@@ -160,10 +163,10 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
 def main():
     parser = argparse.ArgumentParser(description="Calculate the number of NTT cores.")
     parser.add_argument("-N", type=int, default=1024, help="The size of N.")
-    parser.add_argument("-q", type=int, default=12289, help="Declare appropriate q")
+    parser.add_argument("-q", type=int, default=3221225473, help="Declare appropriate q")
     # parser.add_argument("-bits", type=int, default=32, help="Coefficient bit-width")
-    parser.add_argument("-BU", type=int, default=16, help="The size of BU.")
-    parser.add_argument("-CH", type=int, default=8, help="The number of memory channels (input) ")
+    parser.add_argument("-BU", type=int, default=8, help="The size of BU.")
+    parser.add_argument("-CH", type=int, default=16, help="The number of memory channels (input) ")
     parser.add_argument("-RATE", type=float, default=0.5, help="Effective DRAM transfer rate (0 - 1.0)")
 
     args = parser.parse_args()

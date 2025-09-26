@@ -11,7 +11,7 @@
 constexpr int K = {K};
 
 using HostData = {DATA_FORMAT}; 
-using Data = ap_uint<K>; // ap_uint<14|23|32>
+using Data = ap_uint<K>;
 using Data2 = ap_uint<K*2>;
  
 constexpr int DataCHLen = 64 / {DATA_BSIZE}; // 64 / sizeof(Data)
@@ -28,16 +28,10 @@ constexpr int log2(int x) {
 
 #define MOD {MOD}
 
-#if MOD == 12289
-    #define USE_Q12289
-#elif MOD == 7681
-    #define USE_Q7681
-#elif MOD == 8380417
-    #define USE_Q8380417
-#elif MOD == 3221225473
-    #define USE_Q3221225473
+#if MOD == 3221225473
+constexpr unsigned long long BARRETT_MU = 5726623059;
 #else
-    #error "Unsupported mod value. Please define MOD as 12289 or 7681 or 8380417 or 3221225473."
+constexpr unsigned long BARRETT_MU = (1ULL << (2 * K)) / MOD;
 #endif
 
 // Number of coefficients

@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 import argparse
 
-#from rapidstream.assets.device_library.u280.u280 import get_u280_precollected_device
-from rapidstream import get_u280_vitis_device_factory, RapidStreamTAPA
+
+from rapidstream import get_u55c_vitis_device_factory, RapidStreamTAPA
 from rapidstream.assets.floorplan.floorplan_config import FloorplanConfig
 from rapidstream import PipelineConfig
 
@@ -17,7 +17,7 @@ CONFIG_DIR = Path("config_build")
 FLOOR_PLAN_CONFIG = CONFIG_DIR / "floorplan_config.json"
 DEVICE_CONFIG = CONFIG_DIR / "device_config.json"
 PIPELINE_CONFIG = CONFIG_DIR / "pipeline_config.json"
-VITIS_PLATFORM = "xilinx_u280_gen3x16_xdma_1_202211_1"
+VITIS_PLATFORM = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 
 def gen_config(ch: int, group_num: int, group_ch_num: int) -> None:
     """Generate configuration files."""
@@ -63,7 +63,7 @@ def gen_config(ch: int, group_num: int, group_ch_num: int) -> None:
     left_ch = 2*ch if 2*ch < 16 else 16
     right_ch = 0 if 2*ch < 16 else 2*ch - left_ch 
 
-    factory = get_u280_vitis_device_factory(VITIS_PLATFORM)
+    factory = get_u55c_vitis_device_factory(VITIS_PLATFORM)
     #Reserving LUTs/FFs for HBM memory sub-system
     factory.reduce_slot_area(0, 0, lut=5000*left_ch, ff=6500*left_ch)
     factory.reduce_slot_area(1, 0, lut=5000*right_ch+10000, ff=6500*right_ch)
@@ -71,7 +71,7 @@ def gen_config(ch: int, group_num: int, group_ch_num: int) -> None:
     factory.reduce_slot_area(1, 1, dsp=100)
     factory.generate_virtual_device(Path(DEVICE_CONFIG))
 
-    #get_u280_precollected_device(DEVICE_CONFIG)
+    
 
     config = PipelineConfig(
         pp_scheme="double",

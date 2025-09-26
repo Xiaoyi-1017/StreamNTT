@@ -38,29 +38,60 @@ void get_omega_mat(HostData Omega[n][n], HostData mod, HostData psi) {
 
 void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vector<HostData, tapa::aligned_allocator<HostData>> &out_sw, 
 		HostData psi, HostData q, const int POLY_NUM){
-
-	HostData omega[n][n];
-	get_omega_mat(omega, q, psi);
-
-#pragma omp parallel
-	{
-		int tid = omp_get_thread_num();
-		if( tid == 0 ){
-			int nthreads = omp_get_num_threads();
-		}
-	}
+    
+    // Precompute powers of omega_n = psi^2
+    HostData omega_n = (HostData) mod_power(psi, 2, q);
+    std::vector<HostData> omega_powers(n/2);
+    omega_powers[0] = 1;
+    for (int i = 1; i < n/2; ++i) {
+        omega_powers[i] = ((uint64_t)omega_powers[i-1] * omega_n) % q;
+    }
 
 #pragma omp parallel for
-	for(int i = 0; i < POLY_NUM; i++){
-		for (int j = 0; j < n; ++j) {
-			uint64_t sum = 0;
-			for (int k = 0; k < n; ++k) {
-				sum = sum + static_cast<uint64_t>(omega[j][k]) * static_cast<uint64_t>(A[n*i+k]); 
-				sum %= q;
-			}
-			out_sw[n*i + j] = static_cast<HostData>(sum);
-		}
-	}
+    for (int p = 0; p < POLY_NUM; ++p) {
+        std::vector<HostData> data(n);
+        
+        // Copy input and apply twiddle factors
+        for (int j = 0; j < n; ++j) {
+            HostData psi_j = (HostData) mod_power(psi, j, q);
+            data[j] = ((uint64_t)A[p*n + j] * psi_j) % q;
+        }
+        
+        // Bit-reverse
+        std::vector<HostData> temp(n);
+        for (int i = 0; i < n; ++i) {
+            temp[i] = data[bit_reverse(i)];
+        }
+        data.swap(temp);
+        
+        // Cooley-Tukey DIT FFT
+        for (int stage = 0; stage < logN; ++stage) {
+            int m = 1 << (stage + 1);  // Current block size
+            int half = m >> 1;          // Half block size
+            int stride = n / m;         // Stride for omega powers
+            
+            for (int k = 0; k < n; k += m) {
+                for (int j = 0; j < half; ++j) {
+                    HostData w = omega_powers[j * stride];
+                    
+                    int i1 = k + j;
+                    int i2 = i1 + half;
+                    
+                    HostData u = data[i1];
+                    HostData v = data[i2];
+                    
+                    uint64_t wv = ((uint64_t)w * v) % q;
+                    data[i1] = (u + wv) % q;
+                    data[i2] = ((uint64_t)u + q - wv) % q;
+                }
+            }
+        }
+        
+        // Copy result
+        for (int i = 0; i < n; ++i) {
+            out_sw[p*n + i] = data[i];
+        }
+    }
 }
 
 void bit_reverse_hw_out(std::vector<HostData, tapa::aligned_allocator<HostData>> out_hw, std::vector<HostData, tapa::aligned_allocator<HostData>> &out_hw_BR, const int POLY_NUM){

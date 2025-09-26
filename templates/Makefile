@@ -9,9 +9,9 @@ KERNEL_FILE := ./src/ntt.cpp
 HOST_FILE := ./src/host.cpp
 CXX_FLAGS := -O2 -fopenmp
 
-PART_NUM := xcu280-fsvh2892-2L-e
+PART_NUM := xcu55c-fsvh2892-2L-e
 CLOCK_PERIOD := 3.33
-PLATFORM := xilinx_u280_gen3x16_xdma_1_202211_1
+PLATFORM := xilinx_u55c_gen3x16_xdma_3_202210_1
 
 SIM_XO_DIR := ./sim_xo
 SIM_XO_OPT_DIR := ./sim_xo_opt

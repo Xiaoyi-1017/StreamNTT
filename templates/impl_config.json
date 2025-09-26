@@ -2,6 +2,6 @@
     "port_to_clock_period": {
         "ap_clk": 3.20
     },
-    "vitis_platform": "xilinx_u280_gen3x16_xdma_1_202211_1"
+    "vitis_platform": "xilinx_u55c_gen3x16_xdma_3_202210_1"
 }
 

@@ -3,7 +3,7 @@ import argparse
 import math
 import os
 import shutil
-from twiddle_generator import get_nth_root_of_unity_and_psi, twiddle_generator_BR
+from twiddle_generator import get_nth_root_of_unity_and_psi, twiddle_base_generator
 
 def check_q_and_data_length(q):
     
@@ -113,7 +113,7 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
                 7681: {64: 3449, 128: 2028, 256: 535},
                 12289: {64: 140, 128: 8340, 256: 3400, 512: 1987, 1024: 1945}, 
                 8380417: {64: 3241972, 128: 1736313, 256: 1921994, 512: 550930, 1024: 1028169},
-                3221225473: {64: 1292405718, 128: 1262731197, 256 : 764652596, 512 : 1365964089, 1024: 1168849724}
+                3221225473: {64: 1292405718, 128: 1262731197, 256 : 764652596, 512 : 1365964089, 1024: 1168849724, 65536: 1800384970}
                }
     
     if mod in psi_dict:
@@ -126,7 +126,8 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
         print("Current Modulo is not supported: ", mod)
         return
 
-    tw_factors = twiddle_generator_BR(mod, psi, n)
+    tw_base = twiddle_base_generator(mod, psi, n, BU, logN, logBU)
+
 
     # template_file = f"./{folder}/src/ntt.h"
     target_file = os.path.join(folder, "src/ntt.h")
@@ -148,13 +149,21 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     header_content = header_content.replace("{DATA_BSIZE}", str(DATA_BSIZE))
     header_content = header_content.replace("{GROUP_NUM}", str(GROUP_NUM))
     header_content = header_content.replace("{GROUP_CH_NUM}", str(GROUP_CH_NUM))
-    header_content = header_content.replace("{TW_FACTORS}", ', '.join(map(str, tw_factors)))
+    header_content = header_content.replace("{TWF_BASE}", ", ".join("{" + ", ".join(str(int(x)) for x in row) + "}" for row in tw_base))
     header_content = header_content.replace("{PSI}", str(psi))
 
     # output_file = os.path.join(folder, "./src/ntt.h")
     with open(target_file, "w") as file:
         file.write(header_content)
 
+    kernel_file = os.path.join(folder, "src/ntt.cpp")
+    with open(kernel_file, "r") as file:
+        kernel_content = file.read()
+    kernel_content = kernel_content.replace("{TWF_BASE}", ", ".join("{" + ", ".join(str(int(x)) for x in row) + "}" for row in tw_base))
+    kernel_content = kernel_content.replace("{R_BASE}", ", ".join(str(int(row[0])) for row in tw_base[:-1]))            
+    with open(kernel_file, "w") as file:
+        file.write(kernel_content)
+            
     #print(f"{target_file} has been generated.")
 
     generate_makefile(CH, GROUP_NUM, GROUP_CH_NUM, folder)

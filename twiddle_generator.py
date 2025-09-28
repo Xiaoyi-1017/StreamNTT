@@ -119,7 +119,31 @@ def twiddle_generator_BR(mod, psi, n):
 
     return bit_reverse_array(arr)
 
-
+def twiddle_base_generator(mod, psi, n, BU, logN, logBU):
+    """
+    Generate on-the-fly twiddle factors.
+    """
+    tw_factors = twiddle_generator_BR(mod, psi, n)
+    
+    # On-the-fly twf_base_table
+    num_l_stage = logN - logBU - 1
+    num_x_stage = logBU + 1
+    L_BASE = [int(tw_factors[1 << s]) for s in range(num_l_stage)]
+    X_BASE = []
+    for s_x in range(num_x_stage):
+        s_cur = s_x + num_l_stage
+        shift  = logN - (s_cur + 1)
+        row = []
+        for lane in range(BU):
+            tw_idx = (lane >> shift) + (1 << s_cur)
+            row.append(int(tw_factors[tw_idx]))
+        X_BASE.append(row)
+    TWF_BASE = []
+    for v in L_BASE:
+        TWF_BASE.append([v] * BU)
+    TWF_BASE.extend([list(r) for r in X_BASE])
+    
+    return TWF_BASE
 
 def main():
     q_list = [12289, 8380417]

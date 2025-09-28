@@ -1,6 +1,20 @@
 #include <iostream>
 #include "ntt.h"
 
+Data tw_local[logN][BU] = {{TWF_BASE}};
+
+Data R[logN] = {1, {R_BASE}};
+
+ap_uint<logDEPTH-1> bitrev(ap_uint<logDEPTH-1> x) {
+#pragma HLS INLINE
+  ap_uint<logDEPTH-1> y = 0;
+  for (int i = 0; i < logDEPTH-1; ++i) {
+ #pragma HLS UNROLL
+    y[logDEPTH - 2 - i] = x[i];
+  }
+  return y;
+}
+
 void reduce(Data coeff, Data tw_factor, Data &remainder){
 #pragma HLS INLINE
 
@@ -48,8 +62,12 @@ void butterfly(Data even, Data odd, Data tw_factor, Data *out_even, Data* out_od
 
 void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream)
 {
-	const int stage_shift = stage + 1;
-	const int shift = num_l_stage - stage_shift;
+	// const int stage_shift = stage + 1;
+	// const int shift = num_temp_stage - stage_shift;
+	// const ap_uint<logDEPTH> mask = (1<<shift) -1;
+	
+	// delta_new(stage, BU) = 2^(half_bit) = 2^(stage)
+	const int shift = stage;
 	const ap_uint<logDEPTH> mask = (1<<shift) -1;
 
 	// memory for entry with EVEN indices
@@ -83,13 +101,13 @@ BF_UNIT_LOOP:
 #pragma HLS dependence variable=mem3 type=inter false
 
 		// Indexing
-		ap_uint<1> read_mem_idx = (read_idx >> shift) % 2;
+		ap_uint<1> read_mem_idx = (read_idx >> shift) & 1; // % 2;
 
 		ap_uint<logDEPTH> read_upper_addr = (read_idx >> (shift+1)) << (shift);
 		ap_uint<logDEPTH> read_lower_addr = (read_idx & mask);
 		ap_uint<logDEPTH> raddr = read_upper_addr | read_lower_addr;
 
-		ap_uint<1> write_mem_idx = (write_idx >> shift) % 2;
+		ap_uint<1> write_mem_idx = (write_idx >> shift) & 1; // % 2;
 
 		ap_uint<logDEPTH> write_upper_addr = (write_idx >> (shift+1)) << (shift);
 		ap_uint<logDEPTH> write_lower_addr = (write_idx & mask);
@@ -143,15 +161,28 @@ BF_UNIT_LOOP:
 		}
 
 		if( read_safe == true && !input_stream.empty() ){
+		
+			// The next iteration update
+			if (stage) { // stage >= 1
+			  // const bool do_step = !(at_head && even_bank);
+			  bool do_step = (raddr % (1<<stage))!=0;
+			  if (do_step) { // raddr % (1<<stage) || raddr & (1<<stage -1)
+			    Data nxt;
+			    reduce(tw_local[stage][bf_id], R[stage], nxt);
+			    tw_local[stage][bf_id] = nxt;
+			  } else {
+			    tw_local[stage][bf_id] = tw_base[stage][bf_id];
+			  }
+			}
 
 			Data2 in_data = input_stream.read();
 			Data in_even = in_data(K-1,0);
 			Data in_odd = in_data(2*K-1,K);
 			Data out_even, out_odd;
 
-			int tw_idx = (((int)read_idx*BU) >> (logN - stage_shift)) + (1<<stage);
+			Data twf = tw_local[stage][bf_id]; // Read in on-the-fly buffer
 
-			butterfly(in_even, in_odd,  tw_factors[tw_idx], &out_even, &out_odd);
+			butterfly(in_even, in_odd, twf, &out_even, &out_odd);
 
 			if(read_mem_idx == 0){    
 				mem0[raddr] = out_even;
@@ -206,7 +237,7 @@ INPUT_LOOP:
 
 STAGE_LOOP:
 			for(int s = 0; s < num_of_stages; s++){
-#pragma HLS unroll 
+#pragma HLS UNROLL 
 
 				int current_stage = s + logN - logBU -1;
 				int stage_shift = current_stage + 1;
@@ -219,25 +250,38 @@ STAGE_LOOP:
 				// For remainder
 				int mask = (1 << shift) -1;
 				int next_mask = ( 1 << (shift-1) ) -1;
+INITAL_LOOP:				
+				for(int idx = 0; idx < BU; idx++){
+#pragma HLS UNROLL
+					if(i){
+						Data nxt;
+			    			reduce(tw_local[current_stage][idx], R[current_stage], nxt);
+			    			tw_local[current_stage][idx] = nxt;
+					} else {
+						tw_local[current_stage][idx] = tw_base[current_stage][idx];
+					}
+				}
 
 BUTTERFLY_LOOP:
 				for(int idx = 0; idx < BU; idx++){
-#pragma HLS unroll
+#pragma HLS UNROLL
 					Data out_even, out_odd;
 
 					int j = idx >> shift;
 					int k = idx & mask;
 
-					int tw_idx = ((i*BU+idx)>>(logN-stage_shift)) + (1<<current_stage);
-
 					int ind_even = (next_stride == 0) ? ( j << (shift+1) ) 
 						: ( j << (shift+1) ) + (k & next_mask) * 2 + (k >> (shift-1));
 					int ind_odd = ind_even + stride;
+					
+					Data twf = tw_local[current_stage][idx];
 
-					butterfly(mem[s][2*idx], mem[s][2*idx+1], tw_factors[tw_idx], &out_even, &out_odd);
+					butterfly(mem[s][2*idx], mem[s][2*idx+1], twf, &out_even, &out_odd);
 					mem[s+1][ind_even] = out_even;
-					mem[s+1][ind_odd] = out_odd;                   
+					mem[s+1][ind_odd] = out_odd;				
+					            
 				}
+				
 			}
 
 OUTPUT_LOOP:
@@ -289,15 +333,20 @@ INPUT_MEM_STAGE_LOOP:
 		if( read_exist == true && write_done == false ){
 			Data data_e;
 			Data data_o;
+			
+			// Write out bitrev(addr)
+			ap_uint<logDEPTH-1> addr = (ap_uint<logDEPTH-1>)(write_idx);
+			ap_uint<logDEPTH-1> addr_perm = bitrev(addr);
+			
 
 			// For even inputs 0 ~ n/2-1
-			if (write_idx % 2 == 0){ // 0, 512 - 2, 514 ...
-				data_e = mem0[wr_s][write_idx/2];
-				data_o = mem2[wr_s][write_idx/2];
+			if (write_idx < DEPTH/2){ // 0, 512 - 2, 514 ...
+				data_e = mem0[wr_s][addr_perm];
+				data_o = mem2[wr_s][addr_perm];
 			}
 			else{            // 1, 513 - 3, 515 ...
-				data_e = mem1[wr_s][write_idx/2];
-				data_o = mem3[wr_s][write_idx/2];
+				data_e = mem1[wr_s][addr_perm];
+				data_o = mem3[wr_s][addr_perm];
 			}
 
 			Data2 data = (data_o, data_e);
@@ -348,114 +397,6 @@ INPUT_MEM_STAGE_LOOP:
 		}
 	}
 }
-
-/*
-void input_mem_stage(tapa::istream<Data2>& i_stream, tapa::ostream<Data2>& o_stream){
-
-	// memory for entry with EVEN indices
-	Data mem0[DEPTH/2]; 
-	Data mem1[DEPTH/2];
-#pragma HLS bind_storage variable=mem0 type=RAM_S2P impl=lutram 
-#pragma HLS bind_storage variable=mem1 type=RAM_S2P impl=lutram 
-
-	// memory for entry with ODD indices
-	Data mem2[DEPTH/2]; 
-	Data mem3[DEPTH/2];
-#pragma HLS bind_storage variable=mem2 type=RAM_S2P impl=lutram 
-#pragma HLS bind_storage variable=mem3 type=RAM_S2P impl=lutram 
-
-	//memory read/write data count
-	ap_uint<logDEPTH> read_idx = 0;     
-	ap_uint<logDEPTH> write_idx = 0;     
-
-	ap_uint<logDEPTH> read_limit = 0;     
-	ap_uint<logDEPTH> write_limit = 0;     
-
-	bool set_read_limit = false;
-	bool set_write_limit = false;
-	bool mem_empty = true;
-
-
-INPUT_MEM_STAGE_LOOP:
-	for(;;){
-#pragma HLS pipeline II = 1
-#pragma HLS dependence variable=mem0 type=inter false
-#pragma HLS dependence variable=mem1 type=inter false
-#pragma HLS dependence variable=mem2 type=inter false
-#pragma HLS dependence variable=mem3 type=inter false
-
-		bool write_safe = write_limit != write_idx || mem_empty == true;
-		bool read_safe = read_limit != read_idx;
-
-		if( set_write_limit == true ){
-			write_limit = read_idx>>1;	
-		}
-		if( set_read_limit == true ){
-			read_limit = write_idx<<1;	
-		}
-
-		if( set_read_limit == true ){
-			mem_empty = false;
-		}
-		else if( set_write_limit == true && write_idx == 0 && read_idx == 0 ){
-			mem_empty = true;
-		}
-		set_write_limit = false;
-		set_read_limit = false;
-
-		if( read_safe == true ){
-			Data data_e;
-			Data data_o;
-
-			ap_uint<logDEPTH> raddr = read_idx(logDEPTH - 1, 1);
-     
-			// For even inputs 0 ~ n/2-1
-			if( read_idx[0] == 0){ // 0, 512 - 2, 514 ...
-				data_e = mem0[raddr];
-				data_o = mem2[raddr];
-			}
-			else{            // 1, 513 - 3, 515 ...
-				data_e = mem1[raddr];
-				data_o = mem3[raddr];
-			}
-
-			Data2 data = (data_o, data_e);
-			o_stream.write(data);
-
-			if( read_idx[0] == 1){    
-				set_write_limit = true;
-			}
-
-			read_idx++;
-		}
-
-		if( write_safe == true && !i_stream.empty() ){
-			Data2 data = i_stream.read();
-			Data data_e = data(K-1,0);
-			Data data_o = data(2*K-1,K);
-
-			ap_uint<logDEPTH> waddr = write_idx(logDEPTH - 2, 0);     
-
-			if( write_idx[logDEPTH - 1] == 0){
-				// For even inputs 0 ~ n/2-1      
-				mem0[waddr] = data_e;
-				mem1[waddr] = data_o;
-			}
-			else{
-				// For odd inputs n/2 ~ n-1
-				mem2[waddr] = data_e;
-				mem3[waddr] = data_o;
-			}
-
-			if( write_idx[logDEPTH - 1] == 1){    
-				set_read_limit = true;
-			}
-
-			write_idx++;
-		}
-	}
-}
-*/
 
 #ifdef MCH
 

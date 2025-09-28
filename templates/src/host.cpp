@@ -136,6 +136,18 @@ void copy_output(std::vector<std::vector<HostData, tapa::aligned_allocator<HostD
 	}
 }
 
+/* Easier to match new hw outputs */
+
+void anti_bit_reverse_sw_out(std::vector<HostData, tapa::aligned_allocator<HostData>>& sw_br, std::vector<HostData, tapa::aligned_allocator<HostData>>& sw_nat, int POLY_NUM){
+
+	for (int p = 0; p < POLY_NUM; ++p) {
+	    	int base = p * n;
+	    	for (int j = 0; j < n; ++j) {
+		      	int jr = bit_reverse(j);
+		      	sw_nat[base + j] = sw_br[base + jr];
+    		}
+  	}
+}
 
 void ntt(tapa::mmaps<bits<DataVec>, 2*CH> hbm_ch, int poly_num);
 
@@ -220,19 +232,32 @@ int main(int argc, char* argv[]) {
 
 	copy_output(HBM_CH, out_hw, ADJ_POLY_NUM);    
 
-	bit_reverse_hw_out(out_hw, out_hw_BR, ADJ_POLY_NUM);
+	// bit_reverse_hw_out(out_hw, out_hw_BR, ADJ_POLY_NUM);
+	std::vector<HostData, tapa::aligned_allocator<HostData>> out_sw_nat(n*ADJ_POLY_NUM);
+	anti_bit_reverse_sw_out(out_sw, out_sw_nat, ADJ_POLY_NUM);
 
 	std::cout << "Done\n";
 
 	// Compare the results of the Device to the simulation
 
 	int err_cnt = 0;
+	auto bitrev_k = [&](int x){
+		unsigned r=0; for(unsigned i=0;i<logDEPTH;++i) r=(r<<1)|((x>>i)&1u);
+		return (int)r;
+	};
+
 	for(int i = 0; i<ADJ_POLY_NUM; i++){
-		for(int j = 0; j< n; j++){
-			//printf("Sample %d index %d - sw:%d, hw:%d\n", i, j, out_sw[i*n+j], out_hw_BR[i*n+j]); 
-			if(out_sw[i*n+j] != out_hw_BR[i*n+j]) {
-				err_cnt++;
-				if(err_cnt < 10) printf("Error in polynomial %d index %d - sw:%d, hw:%d\n", i, j, out_sw[i*n+j], out_hw_BR[i*n+j]); 
+		for (int g = 0; g < DEPTH; ++g) { // natural group idx
+	    		const int gr = bitrev_k(g); // HW group idx
+			for (int t = 0; t < WIDTH; ++t) { // intra-group offset
+				const int j_sw = i*n + g*WIDTH + t; // natural layout
+				const int j_hw = i*n + gr*WIDTH + t; // HW layout
+				if (out_sw_nat[j_sw] != out_hw[j_hw]) {
+					err_cnt++;
+					if(err_cnt < 32) printf("Error poly %d [g=%d,gr=%d,t=%d] j_sw=%d j_hw=%d sw:%d hw:%d\n",
+					 i, g, gr, t, j_sw, j_hw,
+					 (int)out_sw_nat[j_sw], (int)out_hw[j_hw]);
+				}
 			}
 		}
 	}

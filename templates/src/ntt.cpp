@@ -1,10 +1,6 @@
 #include <iostream>
 #include "ntt.h"
 
-Data tw_local[logN][BU] = {{TWF_BASE}};
-
-Data R[logN] = {1, {R_BASE}};
-
 ap_uint<logDEPTH-1> bitrev(ap_uint<logDEPTH-1> x) {
 #pragma HLS INLINE
   ap_uint<logDEPTH-1> y = 0;
@@ -69,6 +65,10 @@ void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_strea
 	// delta_new(stage, BU) = 2^(half_bit) = 2^(stage)
 	const int shift = stage;
 	const ap_uint<logDEPTH> mask = (1<<shift) -1;
+	
+	Data tw_local = tw_base[stage][0];
+	const Data L_BASE_s = tw_base[stage][0]; 
+	const Data R_s = (stage)? tw_base[stage-1][0]: (Data)1;
 
 	// memory for entry with EVEN indices
 	Data mem0[DEPTH/2]; 
@@ -166,12 +166,12 @@ BF_UNIT_LOOP:
 			if (stage) { // stage >= 1
 			  // const bool do_step = !(at_head && even_bank);
 			  bool do_step = (raddr % (1<<stage))!=0;
-			  if (do_step) { // raddr % (1<<stage) || raddr & (1<<stage -1)
+			  if (do_step) {
 			    Data nxt;
-			    reduce(tw_local[stage][bf_id], R[stage], nxt);
-			    tw_local[stage][bf_id] = nxt;
+			    reduce(tw_local, R_s, nxt);
+			    tw_local = nxt;
 			  } else {
-			    tw_local[stage][bf_id] = tw_base[stage][bf_id];
+			    tw_local = L_BASE_s;
 			  }
 			}
 
@@ -180,7 +180,7 @@ BF_UNIT_LOOP:
 			Data in_odd = in_data(2*K-1,K);
 			Data out_even, out_odd;
 
-			Data twf = tw_local[stage][bf_id]; // Read in on-the-fly buffer
+			const Data twf = tw_local; // Read in on-the-fly buffer
 
 			butterfly(in_even, in_odd, twf, &out_even, &out_odd);
 
@@ -214,6 +214,10 @@ void x_stages(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2, BU
 	const int num_of_stages = logBU + 1;
 	Data mem[num_of_stages+1][WIDTH];
 	ap_uint<logDEPTH> i = 0;
+	
+	Data tw_local[num_x_stage][BU];
+#pragma HLS ARRAY_PARTITION variable=tw_local dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local dim=2 complete
 
 NTT_SPATIAL_LOOP:
 	for(;;){
@@ -250,15 +254,20 @@ STAGE_LOOP:
 				// For remainder
 				int mask = (1 << shift) -1;
 				int next_mask = ( 1 << (shift-1) ) -1;
-INITAL_LOOP:				
+				
+				Data R = tw_base[current_stage-1][0];
+				Data tw_row[BU];
+#pragma HLS ARRAY_PARTITION variable=tw_row complete
+
+INITIAL_LOOP:
 				for(int idx = 0; idx < BU; idx++){
-#pragma HLS UNROLL
+#pragma HLS UNROLL	
 					if(i){
 						Data nxt;
-			    			reduce(tw_local[current_stage][idx], R[current_stage], nxt);
-			    			tw_local[current_stage][idx] = nxt;
+			    			reduce(tw_local[s][idx], R, nxt);
+			    			tw_row[idx] = nxt;
 					} else {
-						tw_local[current_stage][idx] = tw_base[current_stage][idx];
+						tw_row[idx] = tw_base[current_stage][idx];
 					}
 				}
 
@@ -274,11 +283,13 @@ BUTTERFLY_LOOP:
 						: ( j << (shift+1) ) + (k & next_mask) * 2 + (k >> (shift-1));
 					int ind_odd = ind_even + stride;
 					
-					Data twf = tw_local[current_stage][idx];
+					const Data twf = tw_row[idx];
 
 					butterfly(mem[s][2*idx], mem[s][2*idx+1], twf, &out_even, &out_odd);
 					mem[s+1][ind_even] = out_even;
-					mem[s+1][ind_odd] = out_odd;				
+					mem[s+1][ind_odd] = out_odd;	
+					
+					tw_local[s][idx] = twf;				
 					            
 				}
 				
@@ -929,42 +940,3 @@ void ntt(tapa::mmaps<bits<DataVec>, 2*CH> hbm_ch, int poly_num){
 #endif
 	;
 }
-
-/*
-void ntt(tapa::mmaps<bits<DataVec>, CH> x, tapa::mmaps<bits<DataVec>, CH> y, int poly_num){
-
-#ifdef MCH
-	tapa::streams<Data, 2*BU*CH, POLY_FIFO_DEPTH_M> dramrd_streams("dramrd_streams");
-	tapa::streams<Data, 2*BU*CH, POLY_FIFO_DEPTH_M> dramwr_streams("dramwr_streams");
-#else
-	tapa::streams<DataVec, NUM_CORE, POLY_FIFO_DEPTH_S> dramrd_streams("dramrd_streams");
-	tapa::streams<DataVec, NUM_CORE, POLY_FIFO_DEPTH_S> dramwr_streams("dramwr_streams");
-#endif
-	tapa::streams<Data, BU*NUM_CORE, 2> core_istreams_e("core_istreams_e");
-	tapa::streams<Data, BU*NUM_CORE, 2> core_istreams_o("core_istreams_o");
-
-	tapa::streams<Data, BU*NUM_CORE, 2> core_ostreams_e("core_ostreams_e");
-	tapa::streams<Data, BU*NUM_CORE, 2> core_ostreams_o("core_ostreams_o");
-
-	tapa::task()
-#ifdef MCH
-		.invoke<tapa::join, CH>(read_dram_m, x, dramrd_streams, poly_num)
-		.invoke<tapa::detach, GROUP_NUM>(read_collect_m, dramrd_streams, core_istreams_e, core_istreams_o)
-#else
-		.invoke<tapa::join, CH>(read_dram_s, x, dramrd_streams, poly_num)
-	 	.invoke<tapa::detach, NUM_CORE>(read_dist_s, dramrd_streams, core_istreams_e, core_istreams_o)
-#endif
-
-		.invoke<tapa::detach, NUM_CORE>(ntt_core, core_istreams_e, core_istreams_o, core_ostreams_e, core_ostreams_o)
-
-#ifdef MCH
-		.invoke<tapa::detach, GROUP_NUM>(write_dist_m, dramwr_streams, core_ostreams_e, core_ostreams_o)
-		.invoke<tapa::join, CH>(write_dram_m, y, dramwr_streams, poly_num)
-#else
-		.invoke<tapa::detach, NUM_CORE>(write_reshape_s, dramwr_streams, core_ostreams_e, core_ostreams_o)
-		.invoke<tapa::join, CH>(write_dram_s, y, dramwr_streams, poly_num)
-#endif
-	;
-
-}
-*/

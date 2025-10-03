@@ -155,14 +155,6 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     # output_file = os.path.join(folder, "./src/ntt.h")
     with open(target_file, "w") as file:
         file.write(header_content)
-
-    kernel_file = os.path.join(folder, "src/ntt.cpp")
-    with open(kernel_file, "r") as file:
-        kernel_content = file.read()
-    kernel_content = kernel_content.replace("{TWF_BASE}", ", ".join("{" + ", ".join(str(int(x)) for x in row) + "}" for row in tw_base))
-    kernel_content = kernel_content.replace("{R_BASE}", ", ".join(str(int(row[0])) for row in tw_base[:-1]))            
-    with open(kernel_file, "w") as file:
-        file.write(kernel_content)
             
     #print(f"{target_file} has been generated.")
 

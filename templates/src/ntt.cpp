@@ -255,7 +255,7 @@ STAGE_LOOP:
 				int mask = (1 << shift) -1;
 				int next_mask = ( 1 << (shift-1) ) -1;
 				
-				Data R = tw_base[current_stage-1][0];
+				Data R_s = tw_base[current_stage-1][0];
 				Data tw_row[BU];
 #pragma HLS ARRAY_PARTITION variable=tw_row complete
 
@@ -264,7 +264,7 @@ INITIAL_LOOP:
 #pragma HLS UNROLL	
 					if(i){
 						Data nxt;
-			    			reduce(tw_local[s][idx], R, nxt);
+			    			reduce(tw_local[s][idx], R_s, nxt);
 			    			tw_row[idx] = nxt;
 					} else {
 						tw_row[idx] = tw_base[current_stage][idx];

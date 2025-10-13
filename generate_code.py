@@ -126,7 +126,7 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
         print("Current Modulo is not supported: ", mod)
         return
 
-    tw_base = twiddle_base_generator(mod, psi, n, BU, logN, logBU)
+    tw_l_base, tw_x_base = twiddle_base_generator(mod, psi, n, BU, logN, logBU)
 
 
     # template_file = f"./{folder}/src/ntt.h"
@@ -149,7 +149,10 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     header_content = header_content.replace("{DATA_BSIZE}", str(DATA_BSIZE))
     header_content = header_content.replace("{GROUP_NUM}", str(GROUP_NUM))
     header_content = header_content.replace("{GROUP_CH_NUM}", str(GROUP_CH_NUM))
-    header_content = header_content.replace("{TWF_BASE}", ", ".join("{" + ", ".join(str(int(x)) for x in row) + "}" for row in tw_base))
+    header_content = header_content.replace("{TWF_L_BASE}", "const Data tw_l_base[num_l_stage] = {" + \
+    						", ".join(str(int(x)) for x in tw_l_base) + "};")
+    header_content = header_content.replace("{TWF_X_BASE}", "const Data tw_x_base[tw_x_base_size] = {" + \
+    						", ".join(str(int(x)) for x in tw_x_base) + "};")
     header_content = header_content.replace("{PSI}", str(psi))
 
     # output_file = os.path.join(folder, "./src/ntt.h")

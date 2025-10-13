@@ -70,7 +70,11 @@ constexpr int POLY_FIFO_DEPTH_M = n / (2*BU);
 
 constexpr HostData psi = {PSI};
 
-// Bit reversed array of twiddle factors
-const Data tw_base[logN][BU] = {{TWF_BASE}};
+// Small pre-computed basic twiddle factor vectors 
+constexpr int tw_x_base_size = 2*BU-1;
+{TWF_L_BASE}
+{TWF_X_BASE}
+
+using Wide = ap_uint<BU * K>;
 
 #endif // NTT_H

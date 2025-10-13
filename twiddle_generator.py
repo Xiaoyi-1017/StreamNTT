@@ -129,7 +129,7 @@ def twiddle_base_generator(mod, psi, n, BU, logN, logBU):
     num_l_stage = logN - logBU - 1
     num_x_stage = logBU + 1
     L_BASE = [int(tw_factors[1 << s]) for s in range(num_l_stage)]
-    X_BASE = []
+    TWF_X_BASE = []
     for s_x in range(num_x_stage):
         s_cur = s_x + num_l_stage
         shift  = logN - (s_cur + 1)
@@ -137,13 +137,15 @@ def twiddle_base_generator(mod, psi, n, BU, logN, logBU):
         for lane in range(BU):
             tw_idx = (lane >> shift) + (1 << s_cur)
             row.append(int(tw_factors[tw_idx]))
-        X_BASE.append(row)
-    TWF_BASE = []
-    for v in L_BASE:
-        TWF_BASE.append([v] * BU)
-    TWF_BASE.extend([list(r) for r in X_BASE])
-    
-    return TWF_BASE
+        TWF_X_BASE.append(row)
+ 
+    X_BASE = []
+    for s_x, row in enumerate(TWF_X_BASE):
+    	step = BU >> s_x
+    	uniq = 1 << s_x # 1,2,4,...,BU
+    	X_BASE.extend(row[0 : uniq * step : step])
+	 
+    return L_BASE, X_BASE
 
 def main():
     q_list = [12289, 8380417]

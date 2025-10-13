@@ -55,8 +55,43 @@ void butterfly(Data even, Data odd, Data tw_factor, Data *out_even, Data* out_od
 	*out_odd  = static_cast<Data>(out1);
 }
 
+void tw_gen_L(const int stage, tapa::ostreams<Data, BU>&  tw_L) {
+#pragma HLS INLINE off
 
-void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream)
+	const int shift = stage;
+	const ap_uint<logDEPTH> mask = (1<<shift) -1;
+	Data tw_local = tw_l_base[stage];
+	const Data L_BASE_s = tw_l_base[stage]; 
+	const Data R_s = (stage)? tw_l_base[stage-1]: (Data)1;
+	ap_uint<logDEPTH> read_idx = 0;
+	
+	for(;;){
+#pragma HLS PIPELINE II=1		
+		// Group head determination consistent with address theory (using read_idx, bitwise operation)
+		ap_uint<logDEPTH> read_upper_addr = (read_idx >> (shift+1)) << (shift);
+		ap_uint<logDEPTH> read_lower_addr = (read_idx & mask);
+		ap_uint<logDEPTH> raddr = read_upper_addr | read_lower_addr;
+
+		// tw mul_mod update starts
+		bool do_step = (stage!=0) && ((raddr % (1<<stage))!=0);
+		if(do_step) {
+			Data nxt; reduce(tw_local, R_s, nxt); tw_local = nxt;
+		} else {
+			tw_local = L_BASE_s;
+		}
+		// tw mul_mod update finished
+			
+		// tw distribution starts
+		// Because these NBU bf_unit (l_stage) share the same twf
+		for(int j=0; j< BU; ++j){
+			tw_L[j].write(tw_local);
+		}
+		// tw distribution finished
+		read_idx++;
+	}
+}
+
+void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i)
 {
 	// const int stage_shift = stage + 1;
 	// const int shift = num_temp_stage - stage_shift;
@@ -66,9 +101,9 @@ void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_strea
 	const int shift = stage;
 	const ap_uint<logDEPTH> mask = (1<<shift) -1;
 	
-	Data tw_local = tw_base[stage][0];
-	const Data L_BASE_s = tw_base[stage][0]; 
-	const Data R_s = (stage)? tw_base[stage-1][0]: (Data)1;
+	Data twf = 0;
+	// const Data L_BASE_s =tw_l_base[stage]; 
+	// const Data R_s = (stage)? tw_l_base[stage-1]: (Data)1;
 
 	// memory for entry with EVEN indices
 	Data mem0[DEPTH/2]; 
@@ -161,26 +196,15 @@ BF_UNIT_LOOP:
 		}
 
 		if( read_safe == true && !input_stream.empty() ){
-		
-			// The next iteration update
-			if (stage) { // stage >= 1
-			  // const bool do_step = !(at_head && even_bank);
-			  bool do_step = (raddr % (1<<stage))!=0;
-			  if (do_step) {
-			    Data nxt;
-			    reduce(tw_local, R_s, nxt);
-			    tw_local = nxt;
-			  } else {
-			    tw_local = L_BASE_s;
-			  }
-			}
 
 			Data2 in_data = input_stream.read();
 			Data in_even = in_data(K-1,0);
 			Data in_odd = in_data(2*K-1,K);
 			Data out_even, out_odd;
 
-			const Data twf = tw_local; // Read in on-the-fly buffer
+			
+			Data tw_tmp = tw_i.read(); // Read in on-the-fly buffer
+			twf = tw_tmp;
 
 			butterfly(in_even, in_odd, twf, &out_even, &out_odd);
 
@@ -203,13 +227,60 @@ BF_UNIT_LOOP:
 }
 
 void l_stages(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
+	tapa::streams<Data, BU, 2> tw_L("twL");
 
 	tapa::task()
-		.invoke<tapa::detach, BU>(bf_unit, stage, tapa::seq(), input_stream, output_stream)
+		.invoke<tapa::detach>(tw_gen_L, stage, tw_L)
+		.invoke<tapa::detach, BU>(bf_unit, stage, tapa::seq(), input_stream, output_stream, tw_L)
 	;
 }
 
-void x_stages(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2, BU>& output_streams){
+void tw_gen_X(tapa::ostreams<Wide, num_x_stage>& tw_X_W) {
+		
+	Data tw_local[num_x_stage][BU];
+#pragma HLS ARRAY_PARTITION variable=tw_local dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local dim=2 complete
+
+	ap_uint<logDEPTH> i = 0;
+
+	for(;;){
+#pragma HLS PIPELINE II = 1
+
+STAGE_LOOP:
+		for(int s = 0; s < num_x_stage; s++){
+#pragma HLS UNROLL
+//#pragma HLS PIPELINE II = 1 
+			const int num_tw_base = 1 << s;
+			const int shift = logBU - s;
+			const int base_offset = (1 << s) - 1;
+			
+			const Data R_s = (s) ? tw_x_base[(1<<(s-1))-1]:tw_l_base[num_l_stage-1];
+			
+TW_MUL_MOD_LOOP:			
+			for (int g = 0; g < num_tw_base; ++g) {
+#pragma HLS UNROLL
+				Data nxt;
+				if(i){reduce(tw_local[s][g], R_s, nxt);} 
+				else {nxt = tw_x_base[base_offset+g];}
+				tw_local[s][g] = nxt;
+			}
+				
+			Wide w = 0;
+DISTRIBUTION_LOOP:
+			for(int idx = 0; idx < BU; idx++){
+#pragma HLS UNROLL
+				const int group_idx = idx >> shift;
+				w.range((idx+1)*K-1, idx*K) = tw_local[s][group_idx];       
+			}
+			tw_X_W[s].write(w);
+		}
+		
+		i++;
+	}
+
+}
+
+void x_stages(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2, BU>& output_streams, tapa::istreams<Wide, num_x_stage>& tw_X_W){
 
 	const int num_of_stages = logBU + 1;
 	Data mem[num_of_stages+1][WIDTH];
@@ -222,6 +293,7 @@ void x_stages(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2, BU
 NTT_SPATIAL_LOOP:
 	for(;;){
 #pragma HLS PIPELINE II = 1
+
 		bool do_read = 1;
 		for(int j = 0; j < BU; j++){
 #pragma HLS UNROLL
@@ -255,20 +327,13 @@ STAGE_LOOP:
 				int mask = (1 << shift) -1;
 				int next_mask = ( 1 << (shift-1) ) -1;
 				
-				Data R_s = tw_base[current_stage-1][0];
-				Data tw_row[BU];
-#pragma HLS ARRAY_PARTITION variable=tw_row complete
-
-INITIAL_LOOP:
+				Wide w = tw_X_W[s].read();
+DISTRIBUTION_LOOP:
 				for(int idx = 0; idx < BU; idx++){
-#pragma HLS UNROLL	
-					if(i){
-						Data nxt;
-			    			reduce(tw_local[s][idx], R_s, nxt);
-			    			tw_row[idx] = nxt;
-					} else {
-						tw_row[idx] = tw_base[current_stage][idx];
-					}
+#pragma HLS UNROLL
+					//const int tw_base_idx = idx + s * BU;
+					//tw_local[s][idx] = tw_X[tw_base_idx].read();
+					tw_local[s][idx] = w.range((idx+1)*K-1, idx*K);
 				}
 
 BUTTERFLY_LOOP:
@@ -283,13 +348,12 @@ BUTTERFLY_LOOP:
 						: ( j << (shift+1) ) + (k & next_mask) * 2 + (k >> (shift-1));
 					int ind_odd = ind_even + stride;
 					
-					const Data twf = tw_row[idx];
+					Data twf = tw_local[s][idx];
 
 					butterfly(mem[s][2*idx], mem[s][2*idx+1], twf, &out_even, &out_odd);
 					mem[s+1][ind_even] = out_even;
-					mem[s+1][ind_odd] = out_odd;	
-					
-					tw_local[s][idx] = twf;				
+					mem[s+1][ind_odd] = out_odd;
+						
 					            
 				}
 				
@@ -305,6 +369,14 @@ OUTPUT_LOOP:
 			i++;
 		}
 	}
+}
+
+void x_stages_top(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2, BU>& output_streams){
+	tapa::streams<Wide, num_x_stage, 2> tw_X_W("twX");
+
+	tapa::task()
+		.invoke<tapa::detach>(tw_gen_X, tw_X_W)
+		.invoke<tapa::detach>(x_stages, input_streams, output_streams, tw_X_W);
 }
 
 void input_mem_stage(tapa::istream<Data2>& i_stream, tapa::ostream<Data2>& o_stream){
@@ -790,7 +862,7 @@ void ntt_core(tapa::istreams<Data2, BU> core_istreams, tapa::ostreams<Data2, BU>
 	tapa::task()
 		.invoke<tapa::detach, BU>(input_mem_stage, core_istreams, core_streams)
 		.invoke<tapa::detach, num_l_stage>(l_stages, tapa::seq(), core_streams, core_streams)
-		.invoke<tapa::detach>(x_stages, core_streams, core_ostreams); 
+		.invoke<tapa::detach>(x_stages_top, core_streams, core_ostreams); 
 }
 
 #ifndef MCH

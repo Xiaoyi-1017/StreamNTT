@@ -3,14 +3,55 @@
 
 ap_uint<logDEPTH-1> bitrev(ap_uint<logDEPTH-1> x) {
 #pragma HLS INLINE
-  ap_uint<logDEPTH-1> y = 0;
-  for (int i = 0; i < logDEPTH-1; ++i) {
- #pragma HLS UNROLL
-    y[logDEPTH - 2 - i] = x[i];
-  }
-  return y;
+	ap_uint<logDEPTH-1> y = 0;
+	for (int i = 0; i < logDEPTH-1; ++i) {
+#pragma HLS UNROLL
+		y[logDEPTH - 2 - i] = x[i];
+	}
+	return y;
 }
+/*
+void reduce(Data A, Data B, Data &Z){
+#pragma HLS INLINE
+	Data q = MOD;
+	Data2 T = BARRETT_MU;
+	Data2 mask = ((Data2)1 << (K+1)) - 1; // (n+1)-bits, 2^(K+1)-1
 
+	// IntMult1: Full-IntMult, n-bits * n-bits => 2n-bits
+	Data2 U = (Data2)(A * B); // 2n-bits
+	ap_uint<K+1> V = static_cast<ap_uint<K+1>>(U >> (K-1)); // (n+1)-bits
+	Data V_l = static_cast<Data>(V); // n-bits
+	ap_uint<1> V_h = V[K]; // 1-bit
+
+	// IntMult2: Upper half (UH)-IntMult, n-bits * n-bits => upper n-bits
+	Data T_l = (Data)T;
+	Data T_h = (Data)(T >> K);
+	Data2 W0 = (Data2)(V_l * T_l);
+	Data2 W1 = (Data2)(V_l * T_h);
+	Data2 W2 = (V_h)?(Data2)T_l:(Data2)0;
+	ap_uint<K+1> W3 = V_h ? ((ap_uint<K+1>)T_h << (K-1)) : (ap_uint<K+1>)0; // high_term
+	ap_uint<2*K+1> W_buffer = (ap_uint<2*K+1>)( W0 + ((ap_uint<2*K+1>)(W1 + W2) << K)); // (2n+1)-bits
+	ap_uint<K+1> W = static_cast<ap_uint<K+1>>(W_buffer >> (K+1)) + W3; // (n+1)-bits
+	Data W_l = static_cast<Data>(W); // n-bits
+	ap_uint<1> W_h = (ap_uint<1>)(W >> K);
+	
+	// IntMult3: Lower half (LH)-IntMult, n-bits * n-bits => lower n-bits
+	Data2 X0 = (Data2)(W_l * q); // Mod K+1 / (n+1)-bits
+	Data2 X1 = (W_h)?(((Data2)q << K)):(Data2)0; // Mod K+1 / (n+1)-bits
+	Data2 X = (X0 + X1) & mask; // (2n-1)-bits
+	
+	Data2 Y = U & mask; // Mod K+1 / (n+1)-bits
+	
+	// Z0 = X - Y in ring 2^(K+1)
+	ap_uint<K+1> Z0 = (ap_uint<K+1>)((Y +(((Data2)1)<<(K+1))-X) & mask);
+	Data2 Z1 = static_cast<Data2>(Z0);
+	Data2 two_q = (Data2)q << 1;
+	Data2 Z2 = Z1 - (Data2)q;
+	Data2 Z3 = Z1 - two_q;
+	Data2 Z_buffer = (Z1>=two_q)?Z3:((Z1>=(Data2)q)?Z2:Z1);
+	Z = static_cast<Data>(Z_buffer);
+}
+*/
 void reduce(Data coeff, Data tw_factor, Data &remainder){
 #pragma HLS INLINE
 
@@ -57,37 +98,33 @@ void butterfly(Data even, Data odd, Data tw_factor, Data *out_even, Data* out_od
 
 void tw_gen_L(const int stage, tapa::ostreams<Data, BU>&  tw_L) {
 #pragma HLS INLINE off
-
-	const int shift = stage;
-	const ap_uint<logDEPTH> mask = (1<<shift) -1;
-	Data tw_local = tw_l_base[stage];
-	const Data L_BASE_s = tw_l_base[stage]; 
+	
+	const Data L_BASE_s = tw_l_base[stage];
 	const Data R_s = (stage)? tw_l_base[stage-1]: (Data)1;
-	ap_uint<logDEPTH> read_idx = 0;
+	
+	const ap_uint<logDEPTH-1> shift = ap_uint<logDEPTH-1>(1 << (num_l_stage - 1 - stage));
+	ap_uint<logDEPTH-1> read_idx = 0;
+	Data tw_local = L_BASE_s;
 	
 	for(;;){
-#pragma HLS PIPELINE II=1		
-		// Group head determination consistent with address theory (using read_idx, bitwise operation)
-		ap_uint<logDEPTH> read_upper_addr = (read_idx >> (shift+1)) << (shift);
-		ap_uint<logDEPTH> read_lower_addr = (read_idx & mask);
-		ap_uint<logDEPTH> raddr = read_upper_addr | read_lower_addr;
+#pragma HLS PIPELINE II=1
 
-		// tw mul_mod update starts
-		bool do_step = (stage!=0) && ((raddr % (1<<stage))!=0);
-		if(do_step) {
-			Data nxt; reduce(tw_local, R_s, nxt); tw_local = nxt;
-		} else {
-			tw_local = L_BASE_s;
-		}
-		// tw mul_mod update finished
+		if(stage){
+		
+			for (int j = 0; j < BU; ++j) {
+#pragma HLS UNROLL
+				tw_L[j].write(tw_local);
+			}
+
+			Data nxt; reduce(tw_local, R_s, nxt);
+	
+			read_idx += shift;			
+			bool do_step_next = read_idx != 0;			
+			tw_local = do_step_next ? nxt : L_BASE_s;
 			
-		// tw distribution starts
-		// Because these NBU bf_unit (l_stage) share the same twf
-		for(int j=0; j< BU; ++j){
-			tw_L[j].write(tw_local);
+		} else {
+			for (int j = 0; j < BU; ++j) {tw_L[j].write(L_BASE_s);}
 		}
-		// tw distribution finished
-		read_idx++;
 	}
 }
 
@@ -240,8 +277,24 @@ void tw_gen_X(tapa::ostreams<Wide, num_x_stage>& tw_X_W) {
 	Data tw_local[num_x_stage][BU];
 #pragma HLS ARRAY_PARTITION variable=tw_local dim=1 complete
 #pragma HLS ARRAY_PARTITION variable=tw_local dim=2 complete
+	Data R_s[num_x_stage];
+#pragma HLS ARRAY_PARTITION variable=R_s complete
 
-	ap_uint<logDEPTH> i = 0;
+	ap_uint<logDEPTH> i = 1;
+
+	tw_local[0][0] = tw_x_base[0];
+	R_s[0] = tw_l_base[num_l_stage-1];
+	
+	for(int s = 1; s < num_x_stage; s++){
+#pragma HLS UNROLL
+		const int num_tw_base = 1 << s;
+		const int base_offset = (1 << s) - 1;
+		for(int g = 0; g < num_tw_base; ++g) {
+#pragma HLS UNROLL
+			tw_local[s][g] = tw_x_base[base_offset+g];
+		}
+		R_s[s] = tw_x_base[(1<<(s-1))-1];
+	}
 
 	for(;;){
 #pragma HLS PIPELINE II = 1
@@ -249,22 +302,10 @@ void tw_gen_X(tapa::ostreams<Wide, num_x_stage>& tw_X_W) {
 STAGE_LOOP:
 		for(int s = 0; s < num_x_stage; s++){
 #pragma HLS UNROLL
-//#pragma HLS PIPELINE II = 1 
 			const int num_tw_base = 1 << s;
 			const int shift = logBU - s;
 			const int base_offset = (1 << s) - 1;
 			
-			const Data R_s = (s) ? tw_x_base[(1<<(s-1))-1]:tw_l_base[num_l_stage-1];
-			
-TW_MUL_MOD_LOOP:			
-			for (int g = 0; g < num_tw_base; ++g) {
-#pragma HLS UNROLL
-				Data nxt;
-				if(i){reduce(tw_local[s][g], R_s, nxt);} 
-				else {nxt = tw_x_base[base_offset+g];}
-				tw_local[s][g] = nxt;
-			}
-				
 			Wide w = 0;
 DISTRIBUTION_LOOP:
 			for(int idx = 0; idx < BU; idx++){
@@ -273,8 +314,16 @@ DISTRIBUTION_LOOP:
 				w.range((idx+1)*K-1, idx*K) = tw_local[s][group_idx];       
 			}
 			tw_X_W[s].write(w);
+						
+TW_MUL_MOD_LOOP:			
+			for(int g = 0; g < num_tw_base; ++g) {
+#pragma HLS UNROLL
+				Data nxt; reduce(tw_local[s][g], R_s[s], nxt);
+				tw_local[s][g] = (i)?nxt:tw_x_base[base_offset+g];
+			}
+				
+
 		}
-		
 		i++;
 	}
 

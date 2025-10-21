@@ -13,25 +13,15 @@ int bit_reverse(int i){
 }
 
 /* Changed to prevent overflow */
-int mod_power(HostData x, int exp, HostData mod){
-	uint64_t result = 1;
-	for(int i = 0; i < exp; i++){
-		result *= x;
-		result %= mod;
+HostData mod_power(HostData x, int exp, HostData mod){
+	unsigned __int128 result = 1;
+	for(int i = 0; i < exp; ++i){
+		result = (result * (unsigned __int128)x) % mod;
 	}
 
 	HostData result_output = static_cast<HostData>(result);
 
 	return result_output;
-}
-
-void get_omega_mat(HostData Omega[n][n], HostData mod, HostData psi) {
-	for (int i = 0; i < n; ++i) {
-		for (int j = 0; j < n; ++j) {
-			int exp = (2*(i*j)+j) % (2*n);
-			Omega[i][j] = mod_power(psi, exp, mod);
-		}
-	}
 }
 
 /* Changed to prevent overflow */
@@ -44,7 +34,7 @@ void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vec
     std::vector<HostData> omega_powers(n/2);
     omega_powers[0] = 1;
     for (int i = 1; i < n/2; ++i) {
-        omega_powers[i] = ((uint64_t)omega_powers[i-1] * omega_n) % q;
+        omega_powers[i] = static_cast<HostData>((unsigned __int128)omega_powers[i-1] * omega_n % q);
     }
 
 #pragma omp parallel for
@@ -54,7 +44,7 @@ void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vec
         // Copy input and apply twiddle factors
         for (int j = 0; j < n; ++j) {
             HostData psi_j = (HostData) mod_power(psi, j, q);
-            data[j] = ((uint64_t)A[p*n + j] * psi_j) % q;
+            data[j] = static_cast<HostData>((unsigned __int128)A[p*n + j] * psi_j % q);
         }
         
         // Bit-reverse
@@ -80,9 +70,10 @@ void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vec
                     HostData u = data[i1];
                     HostData v = data[i2];
                     
-                    uint64_t wv = ((uint64_t)w * v) % q;
+                    unsigned __int128 wv128 = (unsigned __int128)w * (unsigned __int128)v;
+                    HostData wv = static_cast<HostData>(wv128 % q);
                     data[i1] = (u + wv) % q;
-                    data[i2] = ((uint64_t)u + q - wv) % q;
+                    data[i2] = static_cast<HostData>(((unsigned __int128)u + q - wv) % q);
                 }
             }
         }
@@ -254,9 +245,9 @@ int main(int argc, char* argv[]) {
 				const int j_hw = i*n + gr*WIDTH + t; // HW layout
 				if (out_sw_nat[j_sw] != out_hw[j_hw]) {
 					err_cnt++;
-					if(err_cnt < 32) printf("Error poly %d [g=%d,gr=%d,t=%d] j_sw=%d j_hw=%d sw:%d hw:%d\n",
+					if(err_cnt < 32) printf("Error poly %d [g=%d,gr=%d,t=%d] j_sw=%d j_hw=%d sw:%" PRIu64 " hw:%" PRIu64 "\n",
 					 i, g, gr, t, j_sw, j_hw,
-					 (int)out_sw_nat[j_sw], (int)out_hw[j_hw]);
+					 (uint64_t)out_sw_nat[j_sw], (uint64_t)out_hw[j_hw]);
 				}
 			}
 		}

@@ -1,7 +1,6 @@
 import numpy as np
 from sympy import primitive_root, mod_inverse
 
-
 def reverse_bits(num, bits):
     """
     Reverse the bits of an integer `num` within the range defined by `bits`.
@@ -22,7 +21,6 @@ def bit_reverse_array(arr):
     for i in range(n):
         out[reverse_bits(i, bits)] = arr[i]
     return out
-
 
 def get_nth_root_of_unity(n, mod):
     """
@@ -89,8 +87,6 @@ def get_psi(n, q, omega, num_workers=8):
     # If no psi was found, return None.
     return None
 
-
-
 def get_nth_root_of_unity_and_psi(n, mod):
     """
     Calculate the nth root of unity (omega) modulo `mod` using sympy.
@@ -146,6 +142,54 @@ def twiddle_base_generator(mod, psi, n, BU, logN, logBU):
     	X_BASE.extend(row[0 : uniq * step : step])
 	 
     return L_BASE, X_BASE
+
+def is_prime64(q) -> bool:
+    """
+    Deterministic Miller–Rabin for 64-bit integers.
+    """
+    if q < 2:
+        return False
+    small_primes = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29)
+    for p in small_primes:
+        if q == p:
+            return True
+        if q % p == 0:
+            return False
+    d = q - 1
+    r = 0
+    while d & 1 == 0:
+        d >>= 1
+        r += 1
+    
+    for a in (2, 3, 5, 7, 11, 13, 17):
+        if a % q == 0:
+            continue
+        x = pow(a, d, q)
+        if x == 1 or x == q - 1:
+            continue
+        for _ in range(r-1):
+            x = (x * x) % q
+            if x == q - 1:
+                break
+        else:
+            return False
+    return True
+    
+def get_nth_root_of_unity_and_psi_fast(n, mod):
+    """
+    Used for prime Q and 2n | (Q-1); return omega, psi, where omega = psi^2
+    """
+    if (mod - 1) % (2 * n) != 0:
+        raise ValueError("2*N does not divide Q-1")
+    if not is_prime64(mod):
+    	raise ValueError("Q is not priime")
+    
+    g = primitive_root(mod)
+    omega = pow(g, (mod - 1) // n, mod)
+    psi = pow(g, (mod - 1) // (2 * n), mod)
+    print("Current psi is: ", psi)
+    
+    return omega, psi
 
 def main():
     q_list = [12289, 8380417]

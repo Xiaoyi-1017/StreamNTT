@@ -3,17 +3,16 @@ import argparse
 import math
 import os
 import shutil
-from twiddle_generator import get_nth_root_of_unity_and_psi, twiddle_base_generator
+from twiddle_generator import get_nth_root_of_unity_and_psi, twiddle_base_generator, get_nth_root_of_unity_and_psi_fast
+from textwrap import dedent
 
 def check_q_and_data_length(q):
-    
-    q_list = {12289: 14, 7681: 13, 8380417: 23, 3221225473: 32}
 
-    if q not in q_list:
-        print(f"Current Q value is not supported")
+    if q <= 0:
+        print(f"Q value must be positive")
         return
     
-    K = q_list[q]
+    K = math.ceil(math.log2(q))
     
     # Setting up host_data format and bits
     bits = None
@@ -29,7 +28,7 @@ def check_q_and_data_length(q):
         data_format = "uint64_t"
         bits = 64
     else:
-        print(f"Current log q is too large.")
+        raise ValueError(f"Current log(q) > 64 bits; host type not supported yet")
         return
     
     return K, bits, data_format
@@ -66,6 +65,28 @@ def generate_ini(ch, folder):
     with open(filename_1, "w") as file_1:
         file_1.write("\n".join(lines_1))
 
+def generate_barrett_reduce(q: int, impl: str= "barrett") -> str:
+
+    K = q.bit_length()
+    
+    mu = (1 << (2*K)) // q
+    mu_l = mu & ((1 << 64) - 1)
+    mu_h = mu >> 64
+    print("BARRETT_MU is:", mu)
+
+    if K <= 63:	    
+        block = f"""
+        // REDUCTION: BARRETT (auto-generated)
+        static const Data2 BARRETT_MU = (Data2)({mu});
+        """
+    else:	    
+        block = f"""
+        // REDUCTION: BARRETT (auto-generated)
+        static const Data2 BARRETT_MU =
+        ( (Data2)0x{mu_hi:016x} << 64 ) | (Data2)0x{mu_lo:016x};
+        """
+    
+    return dedent(block)         
 
 def generate_makefile(CH, GROUP_NUM, GROUP_CH_NUM, folder):
     template_file = "./templates/Makefile"
@@ -107,7 +128,7 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     MCH = int(GROUP_CH_NUM > 1)
     print(f"NUM_CORE: {NUM_CORE}, GROUP_NUM: {GROUP_NUM}, GROUP_CH_NUM: {GROUP_CH_NUM}")
 
-    # it takes too much to calculate psi for large q (3221225473)
+    # it takes too much to calculate psi for large q (e.g. 3221225473)
     psi = None
     psi_dict = {
                 7681: {64: 3449, 128: 2028, 256: 535},
@@ -120,12 +141,17 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
         if n in psi_dict[mod]:
             psi = psi_dict[mod][n]
         else:
-            omega, psi = get_nth_root_of_unity_and_psi(n, mod)
+            omega, psi = get_nth_root_of_unity_and_psi_fast(n, mod)
 
     else:
-        print("Current Modulo is not supported: ", mod)
-        return
+    	try:
+    	    omega, psi = get_nth_root_of_unity_and_psi_fast(n, mod)
+    	except Exception as e:
+    	    raise ValueError("Current Modulo is not supported: ", mod)
+    	    return
 
+    reduce_block = generate_barrett_reduce(q=mod, impl="barrett")
+    
     tw_l_base, tw_x_base = twiddle_base_generator(mod, psi, n, BU, logN, logBU)
 
 
@@ -149,10 +175,11 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     header_content = header_content.replace("{DATA_BSIZE}", str(DATA_BSIZE))
     header_content = header_content.replace("{GROUP_NUM}", str(GROUP_NUM))
     header_content = header_content.replace("{GROUP_CH_NUM}", str(GROUP_CH_NUM))
+    header_content = header_content.replace("{REDUCE_BLOCK}", reduce_block)
     header_content = header_content.replace("{TWF_L_BASE}", "const Data tw_l_base[num_l_stage] = {" + \
-    						", ".join(str(int(x)) for x in tw_l_base) + "};")
+    						", ".join(str(x) for x in tw_l_base) + "};")
     header_content = header_content.replace("{TWF_X_BASE}", "const Data tw_x_base[tw_x_base_size] = {" + \
-    						", ".join(str(int(x)) for x in tw_x_base) + "};")
+    						", ".join(str(x) for x in tw_x_base) + "};")
     header_content = header_content.replace("{PSI}", str(psi))
 
     # output_file = os.path.join(folder, "./src/ntt.h")

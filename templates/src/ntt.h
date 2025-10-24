@@ -7,6 +7,7 @@
 #include "hls_stream.h"
 #include "ap_int.h"
 #include <tapa.h>
+#include <cinttypes>
 
 constexpr int K = {K};
 
@@ -27,12 +28,6 @@ constexpr int log2(int x) {
 }
 
 #define MOD {MOD}
-
-#if MOD == 3221225473
-constexpr unsigned long long BARRETT_MU = 5726623059;
-#else
-constexpr unsigned long BARRETT_MU = (1ULL << (2 * K)) / MOD;
-#endif
 
 // Number of coefficients
 constexpr int n = {N};
@@ -69,7 +64,7 @@ constexpr int POLY_FIFO_DEPTH_S = n / DataCHLen;
 constexpr int POLY_FIFO_DEPTH_M = n / (2*BU);
 
 constexpr HostData psi = {PSI};
-
+{REDUCE_BLOCK}
 // Bit reversed array of twiddle factors
 const Data tw_factors[n] = {{TW_FACTORS}};
 

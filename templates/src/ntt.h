@@ -43,6 +43,10 @@ constexpr int logDEPTH = {logDEPTH};
 
 constexpr int num_x_stage = logBU + 1;
 constexpr int num_l_stage = logN - (logBU + 1);
+#define NUM_L_stage {NUM_L_stage}
+#if NUM_L_stage > 2
+	constexpr int num_l_stage_ge2 = num_l_stage - 2;
+#endif
 
 constexpr int CH = {CH};
 

@@ -111,6 +111,8 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
 
     logN = int(math.log2(n))
     logBU = int(math.log2(BU))
+    
+    NUM_L_stage = logN - (logBU + 1)
 
     DATA_BSIZE = int(bits/8)
     DataCHLen = int(64 / DATA_BSIZE)
@@ -169,6 +171,7 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     header_content = header_content.replace("{BU}", str(BU))
     header_content = header_content.replace("{logBU}", str(logBU))
     header_content = header_content.replace("{logDEPTH}", str(logDEPTH))
+    header_content = header_content.replace("{NUM_L_stage}", str(NUM_L_stage))
     header_content = header_content.replace("{CH}", str(CH))
     header_content = header_content.replace("{MCH}", str(MCH))
     header_content = header_content.replace("{EffDataCHLen}", str(EffDataCHLen))

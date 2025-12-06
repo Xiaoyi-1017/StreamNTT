@@ -170,11 +170,11 @@ void tw_merge_ge2(const int stage, tapa::istreams<Data, 2>& tw_fifo, tapa::ostre
 	}
 }
 
-void bf_unit_ge2(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i)
+void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i)
 {
-	
+#pragma HLS INLINE	
 	// delta_new(stage, BU) = 2^(half_bit) = 2^(stage)
-	const int shift = stage+2; // Correction of Shift to correct current_stage index
+	const int shift = stage;
 	const ap_uint<logDEPTH> mask = (1<<shift) -1;
 	
 	Data twf = 0;
@@ -302,141 +302,10 @@ BF_UNIT_LOOP:
 	}
 }
 
-void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i)
-{
-	// const int stage_shift = stage + 1;
-	// const int shift = num_temp_stage - stage_shift;
-	// const ap_uint<logDEPTH> mask = (1<<shift) -1;
-	
-	// delta_new(stage, BU) = 2^(half_bit) = 2^(stage)
-	const int shift = stage;
-	const ap_uint<logDEPTH> mask = (1<<shift) -1;
-	
-	Data twf = 0;
-	// const Data L_BASE_s =tw_l_base[stage]; 
-	// const Data R_s = (stage)? tw_l_base[stage-1]: (Data)1;
-
-	// memory for entry with EVEN indices
-	Data mem0[DEPTH/2]; 
-	Data mem1[DEPTH/2];
-#pragma HLS bind_storage variable=mem0 type=RAM_S2P impl=uram//lutram 
-#pragma HLS bind_storage variable=mem1 type=RAM_S2P impl=uram//lutram 
-
-	// memory for entry with ODD indices
-	Data mem2[DEPTH/2]; 
-	Data mem3[DEPTH/2];
-#pragma HLS bind_storage variable=mem2 type=RAM_S2P impl=uram//lutram 
-#pragma HLS bind_storage variable=mem3 type=RAM_S2P impl=uram//lutram 
-
-	//memory read/write data count
-	ap_uint<logDEPTH> read_idx = 0;     
-	ap_uint<logDEPTH> write_idx = 0;     
-
-	ap_uint<logDEPTH> read_limit = 0;     
-	ap_uint<logDEPTH> write_limit = 0;     
-	ap_uint<logDEPTH> write_limit_1d = 0;     
-	bool set_read_limit = 0;
-	bool set_write_limit = 0;
-	bool mem_empty = true;
-
-BF_UNIT_LOOP:
-	for(;;){
-#pragma HLS pipeline II = 1
-#pragma HLS dependence variable=mem0 type=inter false
-#pragma HLS dependence variable=mem1 type=inter false
-#pragma HLS dependence variable=mem2 type=inter false
-#pragma HLS dependence variable=mem3 type=inter false
-
-		// Indexing
-		ap_uint<1> read_mem_idx = (read_idx >> shift) & 1; // % 2;
-
-		ap_uint<logDEPTH> read_upper_addr = (read_idx >> (shift+1)) << (shift);
-		ap_uint<logDEPTH> read_lower_addr = (read_idx & mask);
-		ap_uint<logDEPTH> raddr = read_upper_addr | read_lower_addr;
-
-		ap_uint<1> write_mem_idx = (write_idx >> shift) & 1; // % 2;
-
-		ap_uint<logDEPTH> write_upper_addr = (write_idx >> (shift+1)) << (shift);
-		ap_uint<logDEPTH> write_lower_addr = (write_idx & mask);
-		ap_uint<logDEPTH> waddr = write_upper_addr | write_lower_addr;
-
-		// Safety checks
-		bool write_safe = write_limit_1d != write_idx;
-		bool read_safe = read_limit != read_idx || mem_empty == true;
-
-		if( set_write_limit == 1 ){
-			mem_empty = false;
-		}
-		else if( set_read_limit == 1 && write_idx == read_idx ){
-			mem_empty = true;
-		}
-
-		if( set_read_limit == 1 ){
-			read_limit = write_idx;	
-			read_limit[shift] = 0;
-		}
-		set_read_limit = 0;
-
-		write_limit_1d = write_limit;
-		if( set_write_limit == 1 ){
-			write_limit = read_idx;	
-			write_limit[shift] = 0;
-		}
-		set_write_limit = 0;
-
-
-		if( write_safe == true ){
-			Data output_data0;
-			Data output_data1;
-
-			if(write_mem_idx == 0){
-				output_data0 = mem0[waddr];
-				output_data1 = mem2[waddr];
-			}
-			else{
-				output_data0 = mem1[waddr];
-				output_data1 = mem3[waddr];
-			}
-
-			Data2 output_data = (output_data1, output_data0);
-			output_stream.write(output_data);
-
-			if(write_mem_idx == 1){    
-				set_read_limit = 1;
-			}
-
-			write_idx++;
-		}
-
-		if( read_safe == true && !input_stream.empty() ){
-
-			Data2 in_data = input_stream.read();
-			Data in_even = in_data(K-1,0);
-			Data in_odd = in_data(2*K-1,K);
-			Data out_even, out_odd;
-
-			
-			Data tw_tmp = tw_i.read(); // Read in on-the-fly buffer
-			twf = tw_tmp;
-
-			butterfly(in_even, in_odd, twf, &out_even, &out_odd);
-
-			if(read_mem_idx == 0){    
-				mem0[raddr] = out_even;
-				mem1[raddr] = out_odd;
-			}
-			else{
-				mem2[raddr] = out_even;
-				mem3[raddr] = out_odd;
-			}
-
-			if(read_mem_idx == 1){    
-				set_write_limit = 1;
-			}
-
-			read_idx++;
-		}
-	}
+void bf_unit_ge2(int stage_local, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i) {
+#pragma HLS INLINE off
+  int global_stage = stage_local + 2;  // local 0,1,... => global 2,3,...
+  bf_unit(global_stage, bf_id, input_stream, output_stream, tw_i);
 }
 
 // Wrapper for num_l_stage > 2
@@ -495,6 +364,11 @@ void tw_merge_s1(const int stage, tapa::istreams<Data, 2>& tw_fifo, tapa::ostrea
 	}
 }
 
+void bf_unit_s1(int stage_local, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i) {
+#pragma HLS INLINE off
+  bf_unit(stage_local, bf_id, input_stream, output_stream, tw_i);
+}
+
 void l_stage_s1(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
 	// 2-lane twiddle stream: [0] = even, [1] = odd
 	tapa::streams<Data, 2, 2> tw_fifo("tw_fifo");
@@ -505,7 +379,7 @@ void l_stage_s1(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::
 	tapa::task()
 		.invoke<tapa::detach>(tw_gen_L_s1, stage, tw_fifo) // A 2-lane twiddle generator (inner II=2) 
 		.invoke<tapa::detach>(tw_merge_s1, stage, tw_fifo, tw_L) // Merger: tw_fifo[0]/[1] -> BU tw_L[j] (overall II=1)
-		.invoke<tapa::detach, BU>(bf_unit, stage, tapa::seq(), input_stream, output_stream, tw_L); // NBU bf_units, keeping II=1
+		.invoke<tapa::detach, BU>(bf_unit_s1, stage, tapa::seq(), input_stream, output_stream, tw_L); // NBU bf_units, keeping II=1
 }
 
 // Special case: stage == 0, where two streams always output tw_l_base[0]
@@ -524,13 +398,18 @@ void tw_gen_L_s0(const int stage, tapa::ostreams<Data, BU>&  tw_L) {
 	
 }
 
+void bf_unit_s0(int stage_local, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i) {
+#pragma HLS INLINE off
+  bf_unit(stage_local, bf_id, input_stream, output_stream, tw_i);
+}
+
 void l_stage_s0(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
 	
 	tapa::streams<Data, BU, 2> tw_L("twL");
 
 	tapa::task()
 		.invoke<tapa::detach>(tw_gen_L_s0, stage, tw_L)
-		.invoke<tapa::detach, BU>(bf_unit, stage, tapa::seq(), input_stream, output_stream, tw_L);
+		.invoke<tapa::detach, BU>(bf_unit_s0, stage, tapa::seq(), input_stream, output_stream, tw_L);
 }
 
 void tw_gen_X(tapa::ostreams<Wide, num_x_stage>& tw_X_W) {

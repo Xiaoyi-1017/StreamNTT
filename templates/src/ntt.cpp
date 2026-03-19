@@ -184,14 +184,14 @@ void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_strea
 	// memory for entry with EVEN indices
 	Data mem0[DEPTH/2]; 
 	Data mem1[DEPTH/2];
-#pragma HLS bind_storage variable=mem0 type=RAM_S2P impl=lutram 
-#pragma HLS bind_storage variable=mem1 type=RAM_S2P impl=lutram 
+#pragma HLS bind_storage variable=mem0 type=RAM_S2P impl=uram 
+#pragma HLS bind_storage variable=mem1 type=RAM_S2P impl=uram 
 
 	// memory for entry with ODD indices
 	Data mem2[DEPTH/2]; 
 	Data mem3[DEPTH/2];
-#pragma HLS bind_storage variable=mem2 type=RAM_S2P impl=lutram 
-#pragma HLS bind_storage variable=mem3 type=RAM_S2P impl=lutram 
+#pragma HLS bind_storage variable=mem2 type=RAM_S2P impl=uram 
+#pragma HLS bind_storage variable=mem3 type=RAM_S2P impl=uram 
 
 	//memory read/write data count
 	ap_uint<logDEPTH> read_idx = 0;     
@@ -199,6 +199,7 @@ void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_strea
 
 	ap_uint<logDEPTH> read_limit = 0;     
 	ap_uint<logDEPTH> write_limit = 0;     
+	ap_uint<logDEPTH> write_limit_1d = 0;     
 	bool set_read_limit = 0;
 	bool set_write_limit = 0;
 	bool mem_empty = true;
@@ -225,7 +226,7 @@ BF_UNIT_LOOP:
 		ap_uint<logDEPTH> waddr = write_upper_addr | write_lower_addr;
 
 		// Safety checks
-		bool write_safe = write_limit != write_idx;
+		bool write_safe = write_limit_1d != write_idx;
 		bool read_safe = read_limit != read_idx || mem_empty == true;
 
 		if( set_write_limit == 1 ){
@@ -241,6 +242,7 @@ BF_UNIT_LOOP:
 		}
 		set_read_limit = 0;
 
+		write_limit_1d = write_limit;
 		if( set_write_limit == 1 ){
 			write_limit = read_idx;	
 			write_limit[shift] = 0;

@@ -77,6 +77,7 @@ void reduce(Data coeff, Data tw_factor, Data &remainder){
 	remainder =  static_cast<Data>(r);
 }
 */
+
 void butterfly(Data even, Data odd, Data tw_factor, Data *out_even, Data* out_odd) {
 #pragma HLS INLINE
 
@@ -94,80 +95,6 @@ void butterfly(Data even, Data odd, Data tw_factor, Data *out_even, Data* out_od
 	// Cast the results to the correct width so that both branches are the same type
 	*out_even = static_cast<Data>(out0);
 	*out_odd  = static_cast<Data>(out1);
-}
-
-// General case: current_stage > 1
-void tw_gen_L_s_ge2(const int stage, tapa::ostreams<Data, 2>&  tw_fifo) {
-#pragma HLS INLINE off
-	
-	const Data L_BASE_s0 = tw_l_base[stage+2];
-		
-	// R_s0 only valid when stage > 0
-	const Data R_s0 = tw_l_base[stage+1];
-	// Compute second base for odd stream: L_BASE_s1 = L_BASE_s0 * R_s0 (mod q)
-	Data nxt_base; reduce(L_BASE_s0, R_s0, nxt_base);
-	const Data L_BASE[2] = {L_BASE_s0, nxt_base};
-#pragma HLS ARRAY_PARTITION variable=L_BASE complete
-		
-	// Twiddle ratio for this L-stage
-	const Data R_s = tw_l_base[stage];
-		
-	// Stride for this L-stage
-	const ap_uint<logDEPTH-2> shift = ap_uint<logDEPTH-2>(1 << (num_l_stage - 3 - stage));
-		
-	// Per-stream state
-	Data tw_local[2];
-#pragma HLS ARRAY_PARTITION variable=tw_local complete
-	tw_local[0] = L_BASE[0]; // even stream
-	tw_local[1] = L_BASE[1]; // odd stream
-		
-	ap_uint<logDEPTH-2> read_idx = 0;
-		
-	
-	for(;;){
-#pragma HLS PIPELINE II=2
-		Data nxt_val[2];
-#pragma HLS ARRAY_PARTITION variable=nxt_val complete
-			
-		for (int i = 0; i < 2; ++i) {
-#pragma HLS UNROLL
-			// 1) Write out current twiddle (2 streams)
-			tw_fifo[i].write(tw_local[i]);
-			
-			// 2) Calculate candidate twiddle
-			Data tmp_nxt;
-			reduce(tw_local[i], R_s, tmp_nxt);
-			nxt_val[i] = tmp_nxt;	
-		}			
-			
-		// 3) Update the index, judge what to do next, preceed or reset to base
-		read_idx += shift;			
-		bool do_step_next = read_idx != 0;			
-		for (int i = 0; i < 2; ++i) {
-#pragma HLS UNROLL		
-			tw_local[i] = do_step_next ? nxt_val[i] : L_BASE[i];
-		}
-			
-	}
-
-}
-
-// General case: stage >= 2
-void tw_merge_ge2(const int stage, tapa::istreams<Data, 2>& tw_fifo, tapa::ostreams<Data, BU>&  tw_L) {
-	ap_uint<1> idx = 0;
-	Data tw_local;
-	for(;;){
-#pragma HLS PIPELINE II=1
-		// Alternately read from tw_fifo[0] / tw_fifo[1]
-		tw_local = tw_fifo[idx].read();
-		
-		// Broadcast NBU twiddles to NBU butterfly unit
-		for (int j = 0; j < BU; ++j) {
-#pragma HLS UNROLL
-				tw_L[j].write(tw_local);
-			}
-		idx++;
-	}
 }
 
 void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i)
@@ -190,16 +117,16 @@ void bf_unit(const int stage, const int bf_id, tapa::istream<Data2>& input_strea
 	// memory for entry with ODD indices
 	Data mem2[DEPTH/2]; 
 	Data mem3[DEPTH/2];
-#pragma HLS bind_storage variable=mem2 type=RAM_S2P impl=uram 
-#pragma HLS bind_storage variable=mem3 type=RAM_S2P impl=uram 
+#pragma HLS bind_storage variable=mem2 type=RAM_S2P impl=bram 
+#pragma HLS bind_storage variable=mem3 type=RAM_S2P impl=bram 
 
 	//memory read/write data count
 	ap_uint<logDEPTH> read_idx = 0;     
 	ap_uint<logDEPTH> write_idx = 0;     
 
 	ap_uint<logDEPTH> read_limit = 0;     
-	ap_uint<logDEPTH> write_limit = 0;     
-	ap_uint<logDEPTH> write_limit_1d = 0;     
+	ap_uint<logDEPTH> write_limit = 0;        
+	ap_uint<logDEPTH> write_limit_1d = 0;  // write-in with a one-cycle delay
 	bool set_read_limit = 0;
 	bool set_write_limit = 0;
 	bool mem_empty = true;
@@ -226,7 +153,11 @@ BF_UNIT_LOOP:
 		ap_uint<logDEPTH> waddr = write_upper_addr | write_lower_addr;
 
 		// Safety checks
+#ifdef Match_Delay // Match the delay of different RAMs r&w (e.g., 4-URAM)
 		bool write_safe = write_limit_1d != write_idx;
+#else
+		bool write_safe = write_limit != write_idx;
+#endif
 		bool read_safe = read_limit != read_idx || mem_empty == true;
 
 		if( set_write_limit == 1 ){
@@ -242,13 +173,14 @@ BF_UNIT_LOOP:
 		}
 		set_read_limit = 0;
 
+#ifdef Match_Delay
 		write_limit_1d = write_limit;
+#endif
 		if( set_write_limit == 1 ){
 			write_limit = read_idx;	
 			write_limit[shift] = 0;
 		}
 		set_write_limit = 0;
-
 
 		if( write_safe == true ){
 			Data output_data0;
@@ -304,6 +236,369 @@ BF_UNIT_LOOP:
 	}
 }
 
+void reduce_tw(Data A, Data B, Dataplus gamma,  Data &Z){
+#pragma HLS INLINE
+	const Data q = (Data)MOD;
+	
+	// X = A * B
+	Dataplus X = (Dataplus)((Data2)A * (Data2)B);
+	
+	// t = A * gamma
+	ap_uint<2*K+1> t = (ap_uint<2*K+1>)A * (ap_uint<2*K+1>)gamma;
+	
+	// qhat = floor((A * gmma) / 2^K)
+	Data qhat = (Data)(t >> K);
+	
+	// p = qhat * q
+	Dataplus p = (Dataplus)((Data2)qhat * (Data2)q);
+	
+	// r = X - p, keep K+1 bits
+	Dataplus r = (Dataplus)X - p;
+	
+	// c = r >> K
+	ap_uint<1> c = (ap_uint<1>)(r >> K);
+	
+	// Z = (r_low + c*delta) mod 2^K
+	Z = (Data)(r + (c ? (Dataplus)DELTA : Dataplus(0)));
+}
+
+#if TFG_II == 3
+// General case: current_stage > 2
+void tw_gen_L_s_ge3(const int stage, tapa::ostreams<Data, 3>&  tw_fifo) {
+#pragma HLS INLINE off
+	
+	// const Data L_BASE_s0 = tw_l_base[stage+3];
+		
+	// R_s0 only valid when stage > 0
+	// const Data R_s0 = tw_l_base[stage+2];
+	
+	// Data L_BASE_s1; reduce(L_BASE_s0, R_s0, L_BASE_s1);
+	// Data L_BASE_s2; reduce(L_BASE_s1, R_s0, L_BASE_s2);
+	// Data L_BASE_s3; reduce(L_BASE_s2, R_s0, L_BASE_s3);
+	const Data L_BASE[3] = {tw_l_base_lane0[stage+3], tw_l_base_lane1[stage+2], tw_l_base_lane2[stage+1]};
+#pragma HLS ARRAY_PARTITION variable=L_BASE complete
+		
+	// Twiddle ratio for this L-stage
+	// Data R_s; reduce(tw_l_base[stage+2], tw_l_base[stage+1], R_s);
+	// Data R_s = tw_l_Rs[stage];
+	Data R_s = tw_l_base_lane1[stage+1];
+		
+	// Stride for this L-stage
+	// const ap_uint<logDEPTH-2> shift = ap_uint<logDEPTH-2>(1 << (num_l_stage - 4 - stage));
+		
+	// Per-stream state
+	Data tw_local[3];
+#pragma HLS ARRAY_PARTITION variable=tw_local complete
+	tw_local[0] = L_BASE[0];
+	tw_local[1] = L_BASE[1];
+	tw_local[2] = L_BASE[2];
+	// tw_local[3] = L_BASE[3];
+		
+	// ap_uint<logDEPTH-3> read_idx = 0;
+		
+	// Dataplus gamma = (Dataplus)(((ap_uint<2*K+1>)R_s * (ap_uint<2*K+1>)BARRETT_MU) >> K);
+	Dataplus gamma = tw_l_gamma[stage];
+	
+	const ap_uint<logDEPTH-2> shift1 = ap_uint<logDEPTH-2>(1 << (num_l_stage - 4 - stage));
+	ap_uint<logDEPTH-1> read_idx0 = 0;
+	ap_uint<logDEPTH-1> read_idx1 = (ap_uint<logDEPTH-1>)shift1;
+	ap_uint<logDEPTH-1> read_idx2 = (ap_uint<logDEPTH-1>)(shift1 + shift1);
+	const ap_uint<logDEPTH-1> shift2 =  (ap_uint<logDEPTH-1>)(shift1 + shift1);
+	const ap_uint<logDEPTH-1> shift3 =  shift2 + (ap_uint<logDEPTH-1>)shift1;
+	
+	ap_uint<logDEPTH-1> read_idx[3];
+#pragma HLS ARRAY_PARTITION variable=read_idx complete
+	read_idx[0] = read_idx0;
+	read_idx[1] = read_idx1;
+	read_idx[2] = read_idx2;
+	
+	for(;;){
+#pragma HLS PIPELINE II=3
+		Data nxt_val[3];
+#pragma HLS ARRAY_PARTITION variable=nxt_val complete
+			
+		for (int i = 0; i < 3; ++i) {
+#pragma HLS UNROLL
+			// 1) Write out current twiddle (4 streams)
+			tw_fifo[i].write(tw_local[i]);
+			
+			// 2) Calculate candidate twiddle
+			Data tmp_nxt;
+			reduce_tw(tw_local[i], R_s, gamma, tmp_nxt);
+			nxt_val[i] = tmp_nxt;
+			read_idx[i] = read_idx[i] + shift3;
+		}
+			
+		// 3) Update the index, judge what to do next, preceed or reset to base
+		// read_idx += shift;			
+		// bool do_step_next = read_idx != 0;
+			
+		for (int i = 0; i < 3; ++i) {
+#pragma HLS UNROLL		
+		
+			// bool do_step_next = read_idx[i] >= shift3;
+			bool L_BASE0 = read_idx[i] == 0;
+			bool L_BASE1 = read_idx[i] == shift1;
+			bool L_BASE2 = read_idx[i] == shift2;
+			// tw_local[i] = do_step_next ? nxt_val[i] : ((L_BASE0)?L_BASE[0]: ((L_BASE1)?L_BASE[1]: ((L_BASE2)?L_BASE[2]: (Data)0)));
+			tw_local[i] = L_BASE0 ? L_BASE[0]
+            				: L_BASE1 ? L_BASE[1]
+            				: L_BASE2 ? L_BASE[2]
+            				: nxt_val[i];
+		}
+			
+	}
+
+}
+
+// General case: stage >= 3
+void tw_merge_ge3(const int stage, tapa::istreams<Data, 3>& tw_fifo, tapa::ostreams<Data, BU>& tw_L) {
+#pragma HLS INLINE off
+
+	Data buf0, buf1, buf2;
+#pragma HLS RESET variable=buf0
+#pragma HLS RESET variable=buf1
+#pragma HLS RESET variable=buf2
+
+	ap_uint<2> phase = 0; // 0,1,2
+
+	for (;;) {
+#pragma HLS PIPELINE II=1
+
+		// Only read FIFOs once every 3 cycles (phase==0)
+		if (phase == 0) {
+			buf0 = tw_fifo[0].read();
+			buf1 = tw_fifo[1].read();
+			buf2 = tw_fifo[2].read();
+		}
+
+		Data tw_local = (phase == 0) ? buf0
+				: (phase == 1) ? buf1
+						: buf2;
+
+		for (int j = 0; j < BU; ++j) {
+#pragma HLS UNROLL
+			tw_L[j].write(tw_local);
+		}
+
+		phase = (phase == 2) ? (ap_uint<2>)0 : (ap_uint<2>)(phase + 1);
+	}
+}
+
+void bf_unit_ge3(int stage_local, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i) {
+#pragma HLS INLINE off
+  int global_stage = stage_local + 3;  // local 0,1,2... => global 3,4,...
+  bf_unit(global_stage, bf_id, input_stream, output_stream, tw_i);
+}
+
+// Wrapper for num_l_stage > 3
+void l_stage_s_ge3(int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
+#pragma HLS INLINE off
+	// L-stage index = 3, 4, ...
+	
+	tapa::streams<Data, 3, 3> tw_fifo("tw_fifo");
+	
+	tapa::streams<Data, BU, 2> tw_L("twL");
+
+	// generators (II=3 each)
+	tapa::task()
+		.invoke<tapa::detach>(tw_gen_L_s_ge3, stage, tw_fifo) // A 4-lane twiddle generator (inner II=3) 
+		.invoke<tapa::detach>(tw_merge_ge3, stage, tw_fifo, tw_L) // Merger: tw_fifo[0]-[3] -> BU tw_L[j] (overall II=1)
+		.invoke<tapa::detach, BU>(bf_unit_ge3, stage, tapa::seq(), input_stream, output_stream, tw_L); // NBU bf_units, keeping II=1
+}
+
+// Special case: stage == 2, where four streams involves constant tw_base streams
+void tw_gen_L_s2(const int stage, tapa::ostreams<Data, 4>&  tw_fifo) {
+#pragma HLS INLINE off
+	
+	// const Data L_BASE_s0 = tw_l_base[stage];
+	
+	// R_s0 only valid when stage > 0
+	// const Data R_s0 = tw_l_base[stage-1];
+	
+	// Data L_BASE_s1; reduce(L_BASE_s0, R_s0, L_BASE_s1);
+	// Data L_BASE_s2; reduce(L_BASE_s1, R_s0, L_BASE_s2);
+	// Data L_BASE_s3; reduce(L_BASE_s2, R_s0, L_BASE_s3);
+	// const Data L_BASE[4] = {L_BASE_s0, L_BASE_s1, L_BASE_s2, L_BASE_s3};
+	const Data L_BASE[4] = {tw_l_base_lane0[2], tw_l_base_lane1[1], tw_l_base_lane2[0], tw_l_base_lane3[0]};
+#pragma HLS ARRAY_PARTITION variable=L_BASE complete
+
+	for(;;){
+#pragma HLS PIPELINE II=3
+		for (int i = 0; i < 4; ++i) {
+#pragma HLS UNROLL
+			tw_fifo[i].write(L_BASE[i]);
+		}
+	}
+		
+}
+
+void tw_merge_s2(const int stage, tapa::istreams<Data, 4>& tw_fifo, tapa::ostreams<Data, BU>&  tw_L) {
+	ap_uint<2> idx = 0;
+	Data tw_local;
+	for(;;){
+#pragma HLS PIPELINE II=1
+		// Alternately read from tw_fifo[0] - tw_fifo[3]
+		tw_local = tw_fifo[idx].read();
+		
+		// Broadcast NBU twiddles to NBU butterfly unit
+		for (int j = 0; j < BU; ++j) {
+#pragma HLS UNROLL
+				tw_L[j].write(tw_local);
+			}
+		idx++;
+	}
+}
+
+void bf_unit_s2(int stage_local, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i) {
+#pragma HLS INLINE off
+  bf_unit(stage_local, bf_id, input_stream, output_stream, tw_i);
+}
+
+void l_stage_s2(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
+	// 4-lane twiddle stream:
+	tapa::streams<Data, 4, 2> tw_fifo("tw_fifo");
+	
+	tapa::streams<Data, BU, 2> tw_L("twL");
+
+	// generators (II=4 each)
+	tapa::task()
+		.invoke<tapa::detach>(tw_gen_L_s2, stage, tw_fifo) // A 4-lane twiddle generator (inner II=4) 
+		.invoke<tapa::detach>(tw_merge_s2, stage, tw_fifo, tw_L) // Merger: tw_fifo[0]-[3] -> BU tw_L[j] (overall II=1)
+		.invoke<tapa::detach, BU>(bf_unit_s2, stage, tapa::seq(), input_stream, output_stream, tw_L); // NBU bf_units, keeping II=1
+}
+#else
+#if TFG_II == 1
+// General case: current_stage > 1
+void tw_gen_L_s_ge2(const int stage, tapa::ostream<Data>&  tw_fifo) {
+#pragma HLS INLINE off
+	
+	// const Data L_BASE_s0 = tw_l_base[stage+2];
+	const Data L_BASE_s0 = tw_l_base_lane0[stage+2];	
+	// Twiddle ratio for this L-stage
+	// const Data R_s = tw_l_base[stage+1];
+	const Data R_s = tw_l_base_lane0[stage+1];	
+	// Stride for this L-stage
+	const ap_uint<logDEPTH-1> shift = ap_uint<logDEPTH-2>(1 << (num_l_stage - 3 - stage));		
+	// Per-stream state
+	Data tw_local = L_BASE_s0;		
+	ap_uint<logDEPTH-1> read_idx = 0;
+	
+	// Dataplus gamma = (Dataplus)(((ap_uint<2*K+1>)R_s * (ap_uint<2*K+1>)BARRETT_MU) >> K);	
+	Dataplus gamma = tw_l_gamma[stage];
+	
+	for(;;){
+#pragma HLS PIPELINE II=1
+		Data nxt_val;		
+		// 1) Write out current twiddle (2 streams)
+		tw_fifo.write(tw_local);		
+		// 2) Calculate candidate twiddle
+		Data tmp_nxt;
+		reduce_tw(tw_local, R_s, gamma, tmp_nxt);
+		nxt_val = tmp_nxt;							
+		// 3) Update the index, judge what to do next, preceed or reset to base
+		read_idx += shift;			
+		bool do_step_next = read_idx != 0;				
+		tw_local = do_step_next ? nxt_val : L_BASE_s0;			
+	}
+}
+
+// General case: stage >= 2
+void tw_merge_ge2(const int stage, tapa::istream<Data>& tw_fifo, tapa::ostreams<Data, BU>&  tw_L) {
+	Data tw_local;
+	for(;;){
+#pragma HLS PIPELINE II=1
+		// Alternately read from tw_fifo[0] / tw_fifo[1]
+		tw_local = tw_fifo.read();
+		
+		// Broadcast NBU twiddles to NBU butterfly unit
+		for (int j = 0; j < BU; ++j) {
+#pragma HLS UNROLL
+			tw_L[j].write(tw_local);
+		}
+	}
+}
+
+#elif TFG_II == 2
+// General case: current_stage > 1
+void tw_gen_L_s_ge2(const int stage, tapa::ostreams<Data, 2>&  tw_fifo) {
+#pragma HLS INLINE off
+	
+	//const Data L_BASE_s0 = tw_l_base[stage+2];
+		
+	// R_s0 only valid when stage > 0
+	// const Data R_s0 = tw_l_base[stage+1];
+	// Compute second base for odd stream: L_BASE_s1 = L_BASE_s0 * R_s0 (mod q)
+	// Data nxt_base; reduce(L_BASE_s0, R_s0, nxt_base);
+	
+	//const Data L_BASE[2] = {L_BASE_s0, nxt_base};
+	const Data L_BASE[2] = {tw_l_base_lane0[stage+2], tw_l_base_lane1[stage+1]};
+#pragma HLS ARRAY_PARTITION variable=L_BASE complete
+		
+	// Twiddle ratio for this L-stage
+	const Data R_s = tw_l_base_lane0[stage];
+		
+	// Stride for this L-stage
+	const ap_uint<logDEPTH-2> shift = ap_uint<logDEPTH-2>(1 << (num_l_stage - 3 - stage));
+		
+	// Per-stream state
+	Data tw_local[2];
+#pragma HLS ARRAY_PARTITION variable=tw_local complete
+	tw_local[0] = L_BASE[0]; // even stream
+	tw_local[1] = L_BASE[1]; // odd stream
+		
+	ap_uint<logDEPTH-2> read_idx = 0;
+		
+	Dataplus gamma = tw_l_gamma[stage];
+	
+	for(;;){
+#pragma HLS PIPELINE II=2
+		Data nxt_val[2];
+#pragma HLS ARRAY_PARTITION variable=nxt_val complete
+			
+		for (int i = 0; i < 2; ++i) {
+#pragma HLS UNROLL
+			// 1) Write out current twiddle (2 streams)
+			tw_fifo[i].write(tw_local[i]);
+			
+			// 2) Calculate candidate twiddle
+			Data tmp_nxt;
+			// reduce(tw_local[i], R_s, tmp_nxt);
+			reduce_tw(tw_local[i], R_s, gamma, tmp_nxt);
+			nxt_val[i] = tmp_nxt;	
+		}			
+			
+		// 3) Update the index, judge what to do next, preceed or reset to base
+		read_idx += shift;			
+		bool do_step_next = read_idx != 0;			
+		for (int i = 0; i < 2; ++i) {
+#pragma HLS UNROLL		
+			tw_local[i] = do_step_next ? nxt_val[i] : L_BASE[i];
+		}
+			
+	}
+
+}
+
+// General case: stage >= 2
+void tw_merge_ge2(const int stage, tapa::istreams<Data, 2>& tw_fifo, tapa::ostreams<Data, BU>&  tw_L) {
+	ap_uint<1> idx = 0;
+	Data tw_local;
+	for(;;){
+#pragma HLS PIPELINE II=1
+		// Alternately read from tw_fifo[0] / tw_fifo[1]
+		tw_local = tw_fifo[idx].read();
+		
+		// Broadcast NBU twiddles to NBU butterfly unit
+		for (int j = 0; j < BU; ++j) {
+#pragma HLS UNROLL
+				tw_L[j].write(tw_local);
+			}
+		idx++;
+	}
+}
+#endif
+
 void bf_unit_ge2(int stage_local, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i) {
 #pragma HLS INLINE off
   int global_stage = stage_local + 2;  // local 0,1,... => global 2,3,...
@@ -325,18 +620,20 @@ void l_stage_s_ge2(int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ost
 		.invoke<tapa::detach>(tw_merge_ge2, stage, tw_fifo, tw_L) // Merger: tw_fifo[0]/[1] -> BU tw_L[j] (overall II=1)
 		.invoke<tapa::detach, BU>(bf_unit_ge2, stage, tapa::seq(), input_stream, output_stream, tw_L); // NBU bf_units, keeping II=1
 }
+#endif
 
 // Special case: stage == 1, where two streams involves constant tw_base streams
 void tw_gen_L_s1(const int stage, tapa::ostreams<Data, 2>&  tw_fifo) {
 #pragma HLS INLINE off
 	
-	const Data L_BASE_s0 = tw_l_base[stage];
+	// const Data L_BASE_s0 = tw_l_base[stage];
 	
 	// R_s0 only valid when stage > 0
-	const Data R_s0 = tw_l_base[stage-1];
+	// const Data R_s0 = tw_l_base[stage-1];
 	// Compute second base for odd stream: L_BASE_s1 = L_BASE_s0 * R_s0 (mod q)
-	Data nxt_base; reduce(L_BASE_s0, R_s0, nxt_base);
-	const Data L_BASE[2] = {L_BASE_s0, nxt_base};
+	// Data nxt_base; reduce(L_BASE_s0, R_s0, nxt_base);
+	// const Data L_BASE[2] = {L_BASE_s0, nxt_base};
+	const Data L_BASE[2] = {tw_l_base_lane0[1], tw_l_base_lane1[0]};
 #pragma HLS ARRAY_PARTITION variable=L_BASE complete
 
 	for(;;){
@@ -388,7 +685,7 @@ void l_stage_s1(const int stage, tapa::istreams<Data2, BU>& input_stream, tapa::
 void tw_gen_L_s0(const int stage, tapa::ostreams<Data, BU>&  tw_L) {
 #pragma HLS INLINE off
 	
-	const Data L_BASE_s0 = tw_l_base[stage];
+	const Data L_BASE_s0 = tw_l_base_lane0[0];
 	
 	for(;;){ 
 #pragma HLS PIPELINE II=1
@@ -425,7 +722,7 @@ void tw_gen_X(tapa::ostreams<Wide, num_x_stage>& tw_X_W) {
 	ap_uint<logDEPTH> i = 1;
 
 	tw_local[0][0] = tw_x_base[0];
-	R_s[0] = tw_l_base[num_l_stage-1];
+	R_s[0] = tw_l_base_lane0[num_l_stage-1];
 	
 	for(int s = 1; s < num_x_stage; s++){
 #pragma HLS UNROLL
@@ -1055,7 +1352,12 @@ void ntt_core(tapa::istreams<Data2, BU> core_istreams, tapa::ostreams<Data2, BU>
 		.invoke<tapa::detach>(l_stage_s0, 0, core_streams, core_streams)
 		.invoke<tapa::detach>(l_stage_s1, 1, core_streams, core_streams)
 #if NUM_L_stage > 2 // num_l_stage > 2
+#if TFG_II == 3		
+		.invoke<tapa::detach>(l_stage_s2, 2, core_streams, core_streams)
+		.invoke<tapa::detach, num_l_stage_ge3>(l_stage_s_ge3, tapa::seq(), core_streams, core_streams) // After splitting, the number of batches should minus 3
+#else
 		.invoke<tapa::detach, num_l_stage_ge2>(l_stage_s_ge2, tapa::seq(), core_streams, core_streams) // After splitting, the number of batches should minus 2
+#endif
 #endif
 		.invoke<tapa::detach>(x_stages_top, core_streams, core_ostreams); 
 }

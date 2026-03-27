@@ -25,7 +25,6 @@ HostData mod_power(HostData x, int exp, HostData mod){
 }
 
 /* Changed to prevent overflow */
-
 void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vector<HostData, tapa::aligned_allocator<HostData>> &out_sw, 
 		HostData psi, HostData q, const int POLY_NUM){
     
@@ -41,7 +40,7 @@ void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vec
     for (int p = 0; p < POLY_NUM; ++p) {
         std::vector<HostData> data(n);
         
-        // Copy input and apply twiddle factors
+        // Copy input and apply twiddle factors (Preserving your logic here)
         for (int j = 0; j < n; ++j) {
             HostData psi_j = (HostData) mod_power(psi, j, q);
             data[j] = static_cast<HostData>((unsigned __int128)A[p*n + j] * psi_j % q);
@@ -56,9 +55,9 @@ void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vec
         
         // Cooley-Tukey DIT FFT
         for (int stage = 0; stage < logN; ++stage) {
-            int m = 1 << (stage + 1);  // Current block size
-            int half = m >> 1;          // Half block size
-            int stride = n / m;         // Stride for omega powers
+            int m = 1 << (stage + 1); // Current block size
+            int half = m >> 1; // Half block size
+            int stride = n / m; // Stride for omega powers
             
             for (int k = 0; k < n; k += m) {
                 for (int j = 0; j < half; ++j) {
@@ -70,10 +69,20 @@ void sw_ntt(std::vector<HostData, tapa::aligned_allocator<HostData>> A, std::vec
                     HostData u = data[i1];
                     HostData v = data[i2];
                     
+                    // Modular multiplication
                     unsigned __int128 wv128 = (unsigned __int128)w * (unsigned __int128)v;
                     HostData wv = static_cast<HostData>(wv128 % q);
-                    data[i1] = (u + wv) % q;
-                    data[i2] = static_cast<HostData>(((unsigned __int128)u + q - wv) % q);
+
+                    // Butterfly Operations
+                    // U_out = (u + wv) % q
+                    unsigned __int128 sum = (unsigned __int128)u + wv;
+                    data[i1] = (sum >= q) ? (HostData)(sum - q) : (HostData)sum;
+
+                    // V_out = (u - wv + q) % q
+                    // Standard safe modular subtraction: (u + q - wv) % q
+                    // If u < wv, this ensures no underflow.
+                    unsigned __int128 diff = (unsigned __int128)u + q - wv;
+                    data[i2] = (diff >= q) ? (HostData)(diff - q) : (HostData)diff;
                 }
             }
         }
@@ -262,3 +271,4 @@ int main(int argc, char* argv[]) {
 
 	return EXIT_SUCCESS;
 }
+

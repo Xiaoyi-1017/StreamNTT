@@ -142,6 +142,92 @@ def twiddle_base_generator(mod, psi, n, BU, logN, logBU):
     	X_BASE.extend(row[0 : uniq * step : step])
 	 
     return L_BASE, X_BASE
+    
+def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
+    """
+    Generate on-the-fly twiddle bases for L-stage and X-stage.
+
+    Args:
+        mod, psi, n, BU, logN, logBU, K: usual parameters
+        TFG_II: supported values = 1 / 2 / 3
+
+    Returns:
+        tw_l_base_lane0: length = num_l_stage
+        tw_l_base_lane1: length = num_l_stage_ge1
+        tw_l_base_lane2: length = num_l_stage_ge2
+        tw_l_gamma:      length depends on TFG_II
+        tw_x_base:       unchanged 1D flattened X-stage base table
+        delta:           derived from mod and K
+    """
+    if TFG_II not in (1, 2, 3):
+        raise ValueError(f"Unsupported TFG_II={TFG_II}, expected 1/2/3")
+
+    tw_factors = twiddle_generator_BR(mod, psi, n)
+
+    num_l_stage = logN - logBU - 1
+    num_x_stage = logBU + 1
+
+    num_l_stage_ge1 = num_l_stage - 1
+    num_l_stage_ge2 = num_l_stage - 2
+    num_l_stage_ge3 = num_l_stage - 3
+
+    tw_l_base_lane0 = [int(tw_factors[1 << s]) for s in range(num_l_stage)]
+
+    tw_l_base_lane1 = [
+        (tw_l_base_lane0[stage + 1] * tw_l_base_lane0[stage]) % mod
+        for stage in range(num_l_stage_ge1)
+    ]
+
+    tw_l_base_lane2 = [
+        (tw_l_base_lane0[stage + 2] * tw_l_base_lane0[stage]) % mod
+        for stage in range(num_l_stage_ge2)
+    ]
+    
+    # lane3[stage] = lane0[stage+2] * lane0[stage+1] * lane0[stage] mod q
+    tw_l_base_lane3 = [
+        (tw_l_base_lane0[stage + 2] * tw_l_base_lane1[stage]) % mod
+         for stage in range(1) # No need to be num_l_stage_ge3
+    ]
+
+    mu = (1 << (2 * K)) // mod
+
+    if TFG_II == 1:
+        tw_l_gamma = [
+            ((tw_l_base_lane0[stage + 1] * mu) >> K)
+            for stage in range(num_l_stage_ge2)
+        ]
+    elif TFG_II == 2:
+        tw_l_gamma = [
+            ((tw_l_base_lane0[stage] * mu) >> K)
+            for stage in range(num_l_stage_ge2)
+        ]
+    else:  # TFG_II == 3
+        tw_l_gamma = [
+            ((tw_l_base_lane1[stage + 1] * mu) >> K)
+            for stage in range(num_l_stage_ge3)
+        ]
+
+    TWF_X_BASE = []
+    for s_x in range(num_x_stage):
+        s_cur = s_x + num_l_stage
+        shift = logN - (s_cur + 1)
+        row = []
+        for lane in range(BU):
+            tw_idx = (lane >> shift) + (1 << s_cur)
+            row.append(int(tw_factors[tw_idx]))
+        TWF_X_BASE.append(row)
+
+    tw_x_base = []
+    for s_x, row in enumerate(TWF_X_BASE):
+        step = BU >> s_x
+        uniq = 1 << s_x
+        tw_x_base.extend(row[0: uniq * step: step])
+
+    delta = (1 << K) - mod
+    if delta <= 0:
+        raise ValueError(f"Invalid DELTA derived from mod={mod}, K={K}")
+
+    return tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base, delta
 
 def is_prime64(q) -> bool:
     """

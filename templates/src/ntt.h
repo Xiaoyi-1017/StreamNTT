@@ -14,6 +14,11 @@ constexpr int K = {K};
 using HostData = {DATA_FORMAT}; 
 using Data = ap_uint<K>;
 using Data2 = ap_uint<K*2>;
+//Extesion
+using Dataplus = ap_uint<K+1>;
+using Dataplus2 = ap_uint<K+2>;
+using Dataplus3 = ap_uint<K+3>;
+using Data2plus = ap_uint<2*K+1>;
  
 constexpr int DataCHLen = 64 / {DATA_BSIZE}; // 64 / sizeof(Data)
 constexpr int EffDataCHLen = {EffDataCHLen}; 
@@ -44,8 +49,13 @@ constexpr int logDEPTH = {logDEPTH};
 constexpr int num_x_stage = logBU + 1;
 constexpr int num_l_stage = logN - (logBU + 1);
 #define NUM_L_stage {NUM_L_stage}
-#if NUM_L_stage > 2
-	constexpr int num_l_stage_ge2 = num_l_stage - 2;
+
+#define TFG_II {TFG_II}
+
+constexpr int num_l_stage_ge1 = num_l_stage - 1;
+constexpr int num_l_stage_ge2 = num_l_stage - 2;
+#if TFG_II == 3
+constexpr int num_l_stage_ge3 = num_l_stage - 3;
 #endif
 
 constexpr int CH = {CH};
@@ -69,10 +79,19 @@ constexpr int POLY_FIFO_DEPTH_M = n / (2*BU);
 
 constexpr HostData psi = {PSI};
 {REDUCE_BLOCK}
+
 // Small pre-computed basic twiddle factor vectors 
 constexpr int tw_x_base_size = 2*BU-1;
-{TWF_L_BASE}
+{DELTA}
+// {TWF_L_BASE}
+{TWF_L_BASE_LANE0}
+{TWF_L_BASE_LANE1}
+#if TFG_II == 3
+{TWF_L_BASE_LANE2}
+{TWF_L_BASE_LANE3}
+#endif
 {TWF_X_BASE}
+{TWF_L_GAMMA}
 
 using Wide = ap_uint<BU * K>;
 

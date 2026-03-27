@@ -3,7 +3,7 @@ import argparse
 import math
 import os
 import shutil
-from twiddle_generator import get_nth_root_of_unity_and_psi, twiddle_base_generator, get_nth_root_of_unity_and_psi_fast
+from twiddle_generator import get_nth_root_of_unity_and_psi, twiddle_base_generator_lanes, get_nth_root_of_unity_and_psi_fast
 from textwrap import dedent
 
 def check_q_and_data_length(q):
@@ -104,7 +104,7 @@ def generate_makefile(CH, GROUP_NUM, GROUP_CH_NUM, folder):
     #print(f"{output_file} has been generated.")
 
 
-def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
+def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder, TFG_II):
     WIDTH = 2*BU
     DEPTH = n / WIDTH
     logDEPTH = int(math.log2(DEPTH))
@@ -154,9 +154,11 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
 
     reduce_block = generate_barrett_reduce(q=mod, impl="barrett")
     
-    tw_l_base, tw_x_base = twiddle_base_generator(mod, psi, n, BU, logN, logBU)
-
-
+    # tw_l_base, tw_x_base = twiddle_base_generator(mod, psi, n, BU, logN, logBU)
+    tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base, delta = \
+    		twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II)
+    gamma_len_name = "num_l_stage_ge3" if TFG_II == 3 else "num_l_stage_ge2"
+    
     # template_file = f"./{folder}/src/ntt.h"
     target_file = os.path.join(folder, "src/ntt.h")
 
@@ -179,10 +181,22 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder):
     header_content = header_content.replace("{GROUP_NUM}", str(GROUP_NUM))
     header_content = header_content.replace("{GROUP_CH_NUM}", str(GROUP_CH_NUM))
     header_content = header_content.replace("{REDUCE_BLOCK}", reduce_block)
-    header_content = header_content.replace("{TWF_L_BASE}", "const Data tw_l_base[num_l_stage] = {" + \
-    						", ".join(str(x) for x in tw_l_base) + "};")
+    header_content = header_content.replace("{DELTA}", f"const Data DELTA = (Data)0x{delta:X}ULL;")
+    #header_content = header_content.replace("{TWF_L_BASE}", "const Data tw_l_base[num_l_stage] = {" + \
+    #						", ".join(str(x) for x in tw_l_base) + "};")
+    header_content = header_content.replace("{TFG_II}", str(TFG_II))
+    header_content = header_content.replace("{TWF_L_BASE_LANE0}", "const Data tw_l_base_lane0[num_l_stage] = {" + \
+    						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_base_lane0) + "};")
+    header_content = header_content.replace("{TWF_L_BASE_LANE1}", "const Data tw_l_base_lane1[num_l_stage_ge1] = {" + \
+    						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_base_lane1) + "};")
+    header_content = header_content.replace("{TWF_L_BASE_LANE2}", "const Data tw_l_base_lane2[num_l_stage_ge2] = {" + \
+    						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_base_lane2) + "};")
+    header_content = header_content.replace("{TWF_L_BASE_LANE3}", "const Data tw_l_base_lane3[1] = {" + \
+    						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_base_lane3) + "};")
     header_content = header_content.replace("{TWF_X_BASE}", "const Data tw_x_base[tw_x_base_size] = {" + \
-    						", ".join(str(x) for x in tw_x_base) + "};")
+    						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_x_base) + "};")
+    header_content = header_content.replace("{TWF_L_GAMMA}", f"static const Dataplus tw_l_gamma[{gamma_len_name}] = {{"+ \
+    						", ".join(f"(Dataplus)0x{x:016X}ULL" for x in tw_l_gamma) + "};")
     header_content = header_content.replace("{PSI}", str(psi))
 
     # output_file = os.path.join(folder, "./src/ntt.h")
@@ -202,6 +216,7 @@ def main():
     parser.add_argument("-BU", type=int, default=8, help="The size of BU.")
     parser.add_argument("-CH", type=int, default=16, help="The number of memory channels (input) ")
     parser.add_argument("-RATE", type=float, default=0.5, help="Effective DRAM transfer rate (0 - 1.0)")
+    parser.add_argument("-TFG_II", type=int, default=2, choices=[1, 2, 3], help="Twiddle factor generator initiation interval mode (1/2/3). Default: 2")
 
     args = parser.parse_args()
 
@@ -211,6 +226,7 @@ def main():
     BU = args.BU
     CH = args.CH
     RATE = args.RATE
+    TFG_II = args.TFG_II
     
     K, bits, data_format = check_q_and_data_length(mod)    
 
@@ -220,10 +236,10 @@ def main():
         print(f"{CH} * {veclen} should be divisible by {2 * BU}. Design not feasible.")
         return
 
-    print(f"Values used -> N: {N}, q: {mod}, HostData: {data_format}, BU: {BU}, CH: {CH}, RATE: {RATE}, veclen: {veclen}")
+    print(f"Values used -> N: {N}, q: {mod}, HostData: {data_format}, BU: {BU}, CH: {CH}, RATE: {RATE}, veclen: {veclen}, TFG_II: {TFG_II}")
 
     # Create new folder
-    folder_name = f"N{N}_BU{BU}_CH{CH}_q{mod}"
+    folder_name = f"N{N}_BU{BU}_CH{CH}_q{mod}_TFG_II{TFG_II}"
     if os.path.exists(folder_name):
         print(f"Folder exists: {folder_name}. No folder created.")
     else:
@@ -243,7 +259,7 @@ def main():
 
         # Generate new files in the folder
         generate_ini(CH, folder_name)
-        generate_header(N, mod, K, bits, data_format, BU, CH, RATE, folder_name)
+        generate_header(N, mod, K, bits, data_format, BU, CH, RATE, folder_name, TFG_II)
 
  
 if __name__ == "__main__":

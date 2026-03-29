@@ -195,8 +195,8 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder, TFG_II):
     						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_base_lane3) + "};")
     header_content = header_content.replace("{TWF_X_BASE}", "const Data tw_x_base[tw_x_base_size] = {" + \
     						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_x_base) + "};")
-    header_content = header_content.replace("{TWF_L_GAMMA}", f"static const Dataplus tw_l_gamma[{gamma_len_name}] = {{"+ \
-    						", ".join(f"(Dataplus)0x{x:016X}ULL" for x in tw_l_gamma) + "};")
+    header_content = header_content.replace("{TWF_L_GAMMA}", f"static const Data tw_l_gamma[{gamma_len_name}] = {{"+ \
+    						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_gamma) + "};")
     header_content = header_content.replace("{PSI}", str(psi))
 
     # output_file = os.path.join(folder, "./src/ntt.h")
@@ -216,7 +216,7 @@ def main():
     parser.add_argument("-BU", type=int, default=8, help="The size of BU.")
     parser.add_argument("-CH", type=int, default=16, help="The number of memory channels (input) ")
     parser.add_argument("-RATE", type=float, default=0.5, help="Effective DRAM transfer rate (0 - 1.0)")
-    parser.add_argument("-TFG_II", type=int, default=2, choices=[1, 2, 3], help="Twiddle factor generator initiation interval mode (1/2/3). Default: 2")
+    parser.add_argument("-TFG_II", type=int, default=3, choices=[1, 2, 3], help="Twiddle factor generator initiation interval mode (1/2/3). Default: 3")
 
     args = parser.parse_args()
 
@@ -264,3 +264,4 @@ def main():
  
 if __name__ == "__main__":
     main()
+

@@ -21,22 +21,23 @@ pip install -r requirements.txt
 Please use generate_code.py to automatically generate an NTT project.
 
 | Argument | Description | Supported Values | Default |
-|----------|-------------|-----------------|---------|
-| **N** | Transform size (polynomial degree) | 256, 512, 1024 | 1024 |
-| **q** | Prime modulus | 12289, 7681, 8380417, 3221225473 | 3221225473 |
-| **BU** | Number of butterfly units per stage | 1, 2, 4, 8, 16, 32 | 8 |
-| **CH** | Number of input HBM channels <br> (Total of 2×CH channels are used for input & output) | 1, 2, 4, 8, 16 | 16 |
+|----------|-------------|-----------------|-----------------|
+| **N** | Transform size (polynomial degree) | 256 - 131072  | 131072 |
+| **q** | Prime modulus | Arbitrary NTT-friendly Prime (up to 2^64-1) | 2305843009146585089 | 
+| **BU** | Number of butterfly units per stage | 1, 2, 4, 8, 16, 32 | 16 |
+| **CH** | Number of input HBM channels <br> (Total of 2×CH channels are used for input & output) | 1, 2, 4, 8, 16 | 8 |
 | **RATE** | Effective data transfer rate of HBM channel | 0.5, 1.0 | 0.5 |
+| **TFG_II** | Temporary twiddle generation II (l times II=l to achieve II=1 downstream BU). | 1, 2, 3 | 3 |
 
 Example command (with default values):
 ```bash
-./generate_code.py -N 1024 -q 3221225473 -BU 8 -CH 16 -RATE 0.5
+./generate_code.py -N 131072 -q 2305843009146585089 -BU 16 -CH 8 -RATE 0.5 -TFG_II 3
 ```
 
 Example console message:
 ```
-Values used -> N: 1024, q: 3221225473, HostData: uint32_t, BU: 8, CH: 16, RATE: 0.5, veclen: 16
-Creating a new folder: N1024_BU8_CH16_q3221225473
+Values used -> N: 131072, q: 2305843009146585089, HostData: uint64_t, BU: 16, CH: 8, RATE: 0.5, veclen: 8, TFG_II: 3
+Creating a new folder: N131072_BU16_CH8_q2305843009146585089_TFG_II3
 ```
 
 ## Compilation & Execution 
@@ -62,8 +63,9 @@ make all TARGET=hw-opt
 ```
 Simulation / Onboard verification (NUM = number of polynomials)
 ```bash
-make run TARGET={sw | xo | hw | hw-opt} NUM=10000
+make run TARGET={sw | xo | hw | hw-opt} NUM=10
 ```
 
 You should see **PASSED!** message after running on-board verification.
+
 

@@ -15,7 +15,7 @@ void reduce(Data A, Data B, Data &Z){
 #pragma HLS INLINE
 	Data q = MOD;
 	Data2 T = BARRETT_MU;
-	Data2 mask = ((Data2)1 << (K+1)) - 1; // (n+1)-bits, 2^(K+1)-1
+	Data2 mask = ((Data2)1 << (K+2)) - 1; // keep K+2 bits: r can reach [0, 3q)
 
 	// IntMult1: Full-IntMult, n-bits * n-bits => 2n-bits
 	Data2 U = (Data2)(A * B); // 2n-bits
@@ -35,20 +35,20 @@ void reduce(Data A, Data B, Data &Z){
 	Data W_l = static_cast<Data>(W); // n-bits
 	ap_uint<1> W_h = (ap_uint<1>)(W >> K);
 	
-	// IntMult3: Lower half (LH)-IntMult, n-bits * n-bits => lower n-bits
-	Data2 X0 = (Data2)(W_l * q); // Mod K+1 / (n+1)-bits
-	Data2 X1 = (W_h)?(((Data2)q << K)):(Data2)0; // Mod K+1 / (n+1)-bits
-	Data2 X = (X0 + X1) & mask; // (2n-1)-bits
+	// IntMult3: Lower half (LH)-IntMult, n-bits * n-bits => lower K+2 bits
+	Data2 X0 = (Data2)(W_l * q); // keep low K+2 bits
+	Data2 X1 = (W_h)?(((Data2)q << K)):(Data2)0; // keep low K+2 bits
+	Data2 X = (X0 + X1) & mask;
 	
-	Data2 Y = U & mask; // Mod K+1 / (n+1)-bits
+	Data2 Y = U & mask;
 	
-	// Z0 = X - Y in ring 2^(K+1)
-	ap_uint<K+1> Z0 = (ap_uint<K+1>)((Y +(((Data2)1)<<(K+1))-X) & mask);
-	Data2 Z1 = static_cast<Data2>(Z0);
-	Data2 two_q = (Data2)q << 1;
-	Data2 Z2 = Z1 - (Data2)q;
-	Data2 Z3 = Z1 - two_q;
-	Data2 Z_buffer = (Z1>=two_q)?Z3:((Z1>=(Data2)q)?Z2:Z1);
+	// Z0 = Y - X in ring 2^(K+2); then subtract q at most twice.
+	ap_uint<K+2> Z0 = (ap_uint<K+2>)((Y +(((Data2)1)<<(K+2))-X) & mask);
+	Dataplus2 Z1 = static_cast<Dataplus2>(Z0);
+	Dataplus2 two_q = (Dataplus2)q << 1;
+	Dataplus2 Z2 = Z1 - (Dataplus2)q;
+	Dataplus2 Z3 = Z1 - two_q;
+	Dataplus2 Z_buffer = (Z1>=two_q)?Z3:((Z1>=(Dataplus2)q)?Z2:Z1);
 	Z = static_cast<Data>(Z_buffer);
 }
 /*
@@ -236,7 +236,7 @@ BF_UNIT_LOOP:
 	}
 }
 
-void reduce_tw(Data A, Data B, Dataplus gamma,  Data &Z){
+void reduce_tw(Data A, Data B, Data gamma,  Data &Z){
 #pragma HLS INLINE
 	const Data q = (Data)MOD;
 	
@@ -244,7 +244,7 @@ void reduce_tw(Data A, Data B, Dataplus gamma,  Data &Z){
 	Dataplus X = (Dataplus)((Data2)A * (Data2)B);
 	
 	// t = A * gamma
-	ap_uint<2*K+1> t = (ap_uint<2*K+1>)A * (ap_uint<2*K+1>)gamma;
+	Data2 t = (Data2)A * (Data2)gamma;
 	
 	// qhat = floor((A * gmma) / 2^K)
 	Data qhat = (Data)(t >> K);
@@ -296,8 +296,8 @@ void tw_gen_L_s_ge3(const int stage, tapa::ostreams<Data, 3>&  tw_fifo) {
 		
 	// ap_uint<logDEPTH-3> read_idx = 0;
 		
-	// Dataplus gamma = (Dataplus)(((ap_uint<2*K+1>)R_s * (ap_uint<2*K+1>)BARRETT_MU) >> K);
-	Dataplus gamma = tw_l_gamma[stage];
+	// gamma = floor(R_s * 2^K / q), precomputed offline.
+	Data gamma = tw_l_gamma[stage];
 	
 	const ap_uint<logDEPTH-2> shift1 = ap_uint<logDEPTH-2>(1 << (num_l_stage - 4 - stage));
 	ap_uint<logDEPTH-1> read_idx0 = 0;
@@ -484,8 +484,8 @@ void tw_gen_L_s_ge2(const int stage, tapa::ostream<Data>&  tw_fifo) {
 	Data tw_local = L_BASE_s0;		
 	ap_uint<logDEPTH-1> read_idx = 0;
 	
-	// Dataplus gamma = (Dataplus)(((ap_uint<2*K+1>)R_s * (ap_uint<2*K+1>)BARRETT_MU) >> K);	
-	Dataplus gamma = tw_l_gamma[stage];
+	// gamma = floor(R_s * 2^K / q), precomputed offline.
+	Data gamma = tw_l_gamma[stage];
 	
 	for(;;){
 #pragma HLS PIPELINE II=1
@@ -549,7 +549,7 @@ void tw_gen_L_s_ge2(const int stage, tapa::ostreams<Data, 2>&  tw_fifo) {
 		
 	ap_uint<logDEPTH-2> read_idx = 0;
 		
-	Dataplus gamma = tw_l_gamma[stage];
+	Data gamma = tw_l_gamma[stage];
 	
 	for(;;){
 #pragma HLS PIPELINE II=2
@@ -1509,3 +1509,4 @@ void ntt(tapa::mmaps<bits<DataVec>, 2*CH> hbm_ch, int poly_num){
 #endif
 	;
 }
+

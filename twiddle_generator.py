@@ -189,21 +189,19 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
          for stage in range(1) # No need to be num_l_stage_ge3
     ]
 
-    mu = (1 << (2 * K)) // mod
-
     if TFG_II == 1:
         tw_l_gamma = [
-            ((tw_l_base_lane0[stage + 1] * mu) >> K)
+            ((tw_l_base_lane0[stage + 1] << K) // mod)
             for stage in range(num_l_stage_ge2)
         ]
     elif TFG_II == 2:
         tw_l_gamma = [
-            ((tw_l_base_lane0[stage] * mu) >> K)
+            ((tw_l_base_lane0[stage] << K) // mod)
             for stage in range(num_l_stage_ge2)
         ]
     else:  # TFG_II == 3
         tw_l_gamma = [
-            ((tw_l_base_lane1[stage + 1] * mu) >> K)
+            ((tw_l_base_lane1[stage + 1] << K) // mod)
             for stage in range(num_l_stage_ge3)
         ]
 
@@ -301,3 +299,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

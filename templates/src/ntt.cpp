@@ -239,19 +239,22 @@ BF_UNIT_LOOP:
 void reduce_tw(Data A, Data B, Data gamma,  Data &Z){
 #pragma HLS INLINE
 	const Data q = (Data)MOD;
-	
+
 	// X = A * B
 	Dataplus X = (Dataplus)((Data2)A * (Data2)B);
-	
+#pragma HLS BIND_OP variable=X op=mul impl=fabric
+
 	// t = A * gamma
 	Data2 t = (Data2)A * (Data2)gamma;
-	
+#pragma HLS BIND_OP variable=t op=mul impl=fabric
+
 	// qhat = floor((A * gmma) / 2^K)
 	Data qhat = (Data)(t >> K);
-	
+
 	// p = qhat * q
 	Dataplus p = (Dataplus)((Data2)qhat * (Data2)q);
-	
+#pragma HLS BIND_OP variable=p op=mul impl=fabric
+
 	// r = X - p, keep K+1 bits
 	Dataplus r = (Dataplus)X - p;
 	
@@ -718,11 +721,14 @@ void tw_gen_X(tapa::ostreams<Wide, num_x_stage>& tw_X_W) {
 #pragma HLS ARRAY_PARTITION variable=tw_local dim=2 complete
 	Data R_s[num_x_stage];
 #pragma HLS ARRAY_PARTITION variable=R_s complete
+	Data gamma_X[num_x_stage];
+#pragma HLS ARRAY_PARTITION variable=gamma_X complete
 
 	ap_uint<logDEPTH> i = 1;
 
 	tw_local[0][0] = tw_x_base[0];
 	R_s[0] = tw_l_base_lane0[num_l_stage-1];
+	gamma_X[0] = tw_x_gamma[0];
 	
 	for(int s = 1; s < num_x_stage; s++){
 #pragma HLS UNROLL
@@ -733,6 +739,7 @@ void tw_gen_X(tapa::ostreams<Wide, num_x_stage>& tw_X_W) {
 			tw_local[s][g] = tw_x_base[base_offset+g];
 		}
 		R_s[s] = tw_x_base[(1<<(s-1))-1];
+		gamma_X[s] = tw_x_gamma[s];
 	}
 
 	for(;;){
@@ -757,7 +764,7 @@ DISTRIBUTION_LOOP:
 TW_MUL_MOD_LOOP:			
 			for(int g = 0; g < num_tw_base; ++g) {
 #pragma HLS UNROLL
-				Data nxt; reduce(tw_local[s][g], R_s[s], nxt);
+				Data nxt; reduce_tw(tw_local[s][g], R_s[s], gamma_X[s], nxt); // reduce(tw_local[s][g], R_s[s], nxt);
 				tw_local[s][g] = (i)?nxt:tw_x_base[base_offset+g];
 			}
 				

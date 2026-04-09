@@ -220,12 +220,18 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
         step = BU >> s_x
         uniq = 1 << s_x
         tw_x_base.extend(row[0: uniq * step: step])
+    
+    tw_x_gamma = [0] * num_x_stage
+    tw_x_gamma[0] = (tw_l_base_lane0[num_l_stage - 1] << K) // mod
+    for s in range(1, num_x_stage):
+        rs = tw_x_base[(1 << (s - 1)) - 1]
+        tw_x_gamma[s] = (rs << K) // mod
 
     delta = (1 << K) - mod
     if delta <= 0:
         raise ValueError(f"Invalid DELTA derived from mod={mod}, K={K}")
 
-    return tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base, delta
+    return tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base, tw_x_gamma, delta
 
 def is_prime64(q) -> bool:
     """

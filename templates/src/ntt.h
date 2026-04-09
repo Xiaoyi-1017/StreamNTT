@@ -92,6 +92,7 @@ constexpr int tw_x_base_size = 2*BU-1;
 #endif
 {TWF_X_BASE}
 {TWF_L_GAMMA}
+{TWF_X_GAMMA}
 
 using Wide = ap_uint<BU * K>;
 #define Match_Delay

@@ -152,12 +152,13 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
         TFG_II: supported values = 1 / 2 / 3
 
     Returns:
-        tw_l_base_lane0: length = num_l_stage
-        tw_l_base_lane1: length = num_l_stage_ge1
-        tw_l_base_lane2: length = num_l_stage_ge2
-        tw_l_gamma:      length depends on TFG_II
-        tw_x_base:       unchanged 1D flattened X-stage base table
-        delta:           derived from mod and K
+        tw_l_base_lane0:     length = num_l_stage
+        tw_l_base_lane1:     length = num_l_stage_ge1
+        tw_l_base_lane2:     length = num_l_stage_ge2
+        tw_l_gamma:          length depends on TFG_II
+        tw_x_base_lane0/1/2: unchanged 1D flattened X-stage base table
+        tw_x_gamma:          fixed length 
+        delta:               derived from mod and K
     """
     if TFG_II not in (1, 2, 3):
         raise ValueError(f"Unsupported TFG_II={TFG_II}, expected 1/2/3")
@@ -221,17 +222,68 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
         uniq = 1 << s_x
         tw_x_base.extend(row[0: uniq * step: step])
     
+    tw_x_base_lane0 = []
+    for s_x, row in enumerate(TWF_X_BASE):
+        step = BU >> s_x
+        uniq = 1 << s_x
+        tw_x_base_lane0.extend(row[0: uniq * step: step])
+
+    tw_x_base_size = 2 * BU - 1
+    tw_x_base_lane1 = [0] * tw_x_base_size
+    tw_x_base_lane2 = [0] * tw_x_base_size
     tw_x_gamma = [0] * num_x_stage
-    tw_x_gamma[0] = (tw_l_base_lane0[num_l_stage - 1] << K) // mod
-    for s in range(1, num_x_stage):
-        rs = tw_x_base[(1 << (s - 1)) - 1]
-        tw_x_gamma[s] = (rs << K) // mod
+    
+    if TFG_II == 1:
+        # lane1/lane2 unused in II=1
+        tw_x_gamma[0] = (tw_l_base_lane0[num_l_stage - 1] << K) // mod
+        for s in range(1, num_x_stage):
+            rs = tw_x_base_lane0[(1 << (s - 1)) - 1]
+            tw_x_gamma[s] = (rs << K) // mod
+    elif TFG_II == 2:
+    	for s in range(num_x_stage):
+            num_tw_base = 1 << s
+            base_offset = (1 << s) - 1
+
+            if s == 0:
+                rs = tw_l_base_lane0[num_l_stage - 2]
+                rs0 = tw_l_base_lane0[num_l_stage - 1]
+            elif s == 1:
+                rs = tw_l_base_lane0[num_l_stage - 1]
+                rs0 = tw_x_base_lane0[0]
+            else:
+                rs = tw_x_base_lane0[(1 << (s - 2)) - 1]
+                rs0 = tw_x_base_lane0[(1 << (s - 1)) - 1]
+
+            tw_x_gamma[s] = (rs << K) // mod
+
+            for g in range(num_tw_base):
+                idx = base_offset + g
+                tw_x_base_lane1[idx] = (tw_x_base_lane0[idx] * rs0) % mod
+                tw_x_base_lane2[idx] = (tw_x_base_lane1[idx] * rs0) % mod                
+    else:    
+    	for s in range(num_x_stage):
+            num_tw_base = 1 << s
+            base_offset = (1 << s) - 1
+
+            if s == 0:
+                rs = tw_l_base_lane1[num_l_stage_ge1 - 1]
+                rs0 = tw_l_base_lane0[num_l_stage - 1]
+            else:
+                rs0 = tw_x_base_lane0[(1 << (s - 1)) - 1]
+                rs = tw_x_base_lane1[(1 << (s - 1)) - 1]
+
+            tw_x_gamma[s] = (rs << K) // mod
+
+            for g in range(num_tw_base):
+                idx = base_offset + g
+                tw_x_base_lane1[idx] = (tw_x_base_lane0[idx] * rs0) % mod
+                tw_x_base_lane2[idx] = (tw_x_base_lane1[idx] * rs0) % mod
 
     delta = (1 << K) - mod
     if delta <= 0:
         raise ValueError(f"Invalid DELTA derived from mod={mod}, K={K}")
 
-    return tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base, tw_x_gamma, delta
+    return tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base_lane0, tw_x_base_lane1, tw_x_base_lane2, tw_x_gamma, delta
 
 def is_prime64(q) -> bool:
     """

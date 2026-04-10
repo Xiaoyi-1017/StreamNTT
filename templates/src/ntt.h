@@ -90,7 +90,13 @@ constexpr int tw_x_base_size = 2*BU-1;
 {TWF_L_BASE_LANE2}
 {TWF_L_BASE_LANE3}
 #endif
-{TWF_X_BASE}
+{TWF_X_BASE_LANE0}
+#if TFG_II != 1
+{TWF_X_BASE_LANE1}
+#endif
+#if TFG_II == 3
+{TWF_X_BASE_LANE2}
+#endif
 {TWF_L_GAMMA}
 {TWF_X_GAMMA}
 

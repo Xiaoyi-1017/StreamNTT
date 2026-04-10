@@ -155,7 +155,8 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder, TFG_II):
     reduce_block = generate_barrett_reduce(q=mod, impl="barrett")
     
     # tw_l_base, tw_x_base = twiddle_base_generator(mod, psi, n, BU, logN, logBU)
-    tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base, tw_x_gamma, delta = \
+    tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, \
+    		tw_x_base_lane0, tw_x_base_lane1, tw_x_base_lane2, tw_x_gamma, delta = \
     		twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II)
     gamma_len_name = "num_l_stage_ge3" if TFG_II == 3 else "num_l_stage_ge2"
     
@@ -193,8 +194,12 @@ def generate_header(n, mod, K, bits, data_format, BU, CH, RATE, folder, TFG_II):
     						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_base_lane2) + "};")
     header_content = header_content.replace("{TWF_L_BASE_LANE3}", "const Data tw_l_base_lane3[1] = {" + \
     						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_base_lane3) + "};")
-    header_content = header_content.replace("{TWF_X_BASE}", "const Data tw_x_base[tw_x_base_size] = {" + \
-    						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_x_base) + "};") 						
+    header_content = header_content.replace("{TWF_X_BASE_LANE0}", "const Data tw_x_base_lane0[tw_x_base_size] = {" + \
+                        			", ".join(f"(Data)0x{x:016X}ULL" for x in tw_x_base_lane0) + "};")
+    header_content = header_content.replace("{TWF_X_BASE_LANE1}", "const Data tw_x_base_lane1[tw_x_base_size] = {" + \
+                        			", ".join(f"(Data)0x{x:016X}ULL" for x in tw_x_base_lane1) + "};")
+    header_content = header_content.replace("{TWF_X_BASE_LANE2}", "const Data tw_x_base_lane2[tw_x_base_size] = {" + \
+                        			", ".join(f"(Data)0x{x:016X}ULL" for x in tw_x_base_lane2) + "};") 						
     header_content = header_content.replace("{TWF_L_GAMMA}", f"static const Data tw_l_gamma[{gamma_len_name}] = {{"+ \
     						", ".join(f"(Data)0x{x:016X}ULL" for x in tw_l_gamma) + "};")
     header_content = header_content.replace("{TWF_X_GAMMA}","static const Data tw_x_gamma[num_x_stage] = {" +

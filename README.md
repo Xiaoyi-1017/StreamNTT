@@ -27,17 +27,17 @@ Please use generate_code.py to automatically generate an NTT project.
 | **BU** | Number of butterfly units per stage | 1, 2, 4, 8, 16, 32 | 16 |
 | **CH** | Number of input HBM channels <br> (Total of 2×CH channels are used for input & output) | 1, 2, 4, 8, 16 | 8 |
 | **RATE** | Effective data transfer rate of HBM channel | 0.5, 1.0 | 0.5 |
-| **TFG_II** | Temporary twiddle generation II (l times II=l to achieve II=1 downstream BU). | 1, 2, 3 | 3 |
+| **TFG_II** | Temporary twiddle generation II (l times II=l TFGs to achieve II=1 downstream BU). | 1, 2, 3, 4 | 4 |
 
 Example command (with default values):
 ```bash
-./generate_code.py -N 131072 -q 2305843009146585089 -BU 16 -CH 8 -RATE 0.5 -TFG_II 3
+./generate_code.py -N 131072 -q 2305843009146585089 -BU 16 -CH 8 -RATE 0.5 -TFG_II 4
 ```
 
 Example console message:
 ```
-Values used -> N: 131072, q: 2305843009146585089, HostData: uint64_t, BU: 16, CH: 8, RATE: 0.5, veclen: 8, TFG_II: 3
-Creating a new folder: N131072_BU16_CH8_q2305843009146585089_TFG_II3
+Values used -> N: 131072, q: 2305843009146585089, HostData: uint64_t, BU: 16, CH: 8, RATE: 0.5, veclen: 8, TFG_II: 4
+Creating a new folder: N131072_BU16_CH8_q2305843009146585089_TFG_II4
 ```
 
 ## Compilation & Execution 

@@ -143,25 +143,25 @@ def twiddle_base_generator(mod, psi, n, BU, logN, logBU):
 	 
     return L_BASE, X_BASE
     
-def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
+def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=4):
     """
     Generate on-the-fly twiddle bases for L-stage and X-stage.
 
     Args:
         mod, psi, n, BU, logN, logBU, K: usual parameters
-        TFG_II: supported values = 1 / 2 / 3
+        TFG_II: supported values = 1 / 2 / 3 / 4
 
     Returns:
-        tw_l_base_lane0:     length = num_l_stage
-        tw_l_base_lane1:     length = num_l_stage_ge1
-        tw_l_base_lane2:     length = num_l_stage_ge2
-        tw_l_gamma:          length depends on TFG_II
-        tw_x_base_lane0/1/2: unchanged 1D flattened X-stage base table
-        tw_x_gamma:          fixed length 
-        delta:               derived from mod and K
+        tw_l_base_lane0:	length = num_l_stage
+        tw_l_base_lane1:	length = num_l_stage_ge1
+        tw_l_base_lane2:	length = num_l_stage_ge2
+        tw_l_gamma:		length depends on TFG_II
+        tw_x_base_lane0/1/2/3:	unchanged 1D flattened X-stage base table
+        tw_x_gamma:		fixed length 
+        delta:			derived from mod and K
     """
-    if TFG_II not in (1, 2, 3):
-        raise ValueError(f"Unsupported TFG_II={TFG_II}, expected 1/2/3")
+    if TFG_II not in (1, 2, 3, 4):
+        raise ValueError(f"Unsupported TFG_II={TFG_II}, expected 1/2/3/4")
 
     tw_factors = twiddle_generator_BR(mod, psi, n)
 
@@ -179,15 +179,17 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
         for stage in range(num_l_stage_ge1)
     ]
 
+    # keep your currently validated rule
     tw_l_base_lane2 = [
         (tw_l_base_lane0[stage + 2] * tw_l_base_lane0[stage]) % mod
         for stage in range(num_l_stage_ge2)
     ]
-    
-    # lane3[stage] = lane0[stage+2] * lane0[stage+1] * lane0[stage] mod q
+
+    # tw_l_base_lane3[stage] = tw_l_base_lane2[stage] * R_s0 mod q
+    # here R_s0 corresponds to tw_l_base_lane0[stage+1]
     tw_l_base_lane3 = [
-        (tw_l_base_lane0[stage + 2] * tw_l_base_lane1[stage]) % mod
-         for stage in range(1) # No need to be num_l_stage_ge3
+        (tw_l_base_lane2[stage] * tw_l_base_lane0[stage + 1]) % mod
+        for stage in range(num_l_stage_ge2)
     ]
 
     if TFG_II == 1:
@@ -200,9 +202,15 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
             ((tw_l_base_lane0[stage] << K) // mod)
             for stage in range(num_l_stage_ge2)
         ]
-    else:  # TFG_II == 3
+    elif TFG_II == 3:
         tw_l_gamma = [
             ((tw_l_base_lane1[stage + 1] << K) // mod)
+            for stage in range(num_l_stage_ge3)
+        ]
+    else:  # TFG_II == 4
+        # tw_gen_L_s_ge3 uses R_s = tw_l_base_lane0[stage]
+        tw_l_gamma = [
+            ((tw_l_base_lane0[stage] << K) // mod)
             for stage in range(num_l_stage_ge3)
         ]
 
@@ -231,16 +239,17 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
     tw_x_base_size = 2 * BU - 1
     tw_x_base_lane1 = [0] * tw_x_base_size
     tw_x_base_lane2 = [0] * tw_x_base_size
+    tw_x_base_lane3 = [0] * tw_x_base_size
     tw_x_gamma = [0] * num_x_stage
     
     if TFG_II == 1:
-        # lane1/lane2 unused in II=1
         tw_x_gamma[0] = (tw_l_base_lane0[num_l_stage - 1] << K) // mod
         for s in range(1, num_x_stage):
             rs = tw_x_base_lane0[(1 << (s - 1)) - 1]
             tw_x_gamma[s] = (rs << K) // mod
+
     elif TFG_II == 2:
-    	for s in range(num_x_stage):
+        for s in range(num_x_stage):
             num_tw_base = 1 << s
             base_offset = (1 << s) - 1
 
@@ -259,9 +268,10 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
             for g in range(num_tw_base):
                 idx = base_offset + g
                 tw_x_base_lane1[idx] = (tw_x_base_lane0[idx] * rs0) % mod
-                tw_x_base_lane2[idx] = (tw_x_base_lane1[idx] * rs0) % mod                
-    else:    
-    	for s in range(num_x_stage):
+                tw_x_base_lane2[idx] = (tw_x_base_lane1[idx] * rs0) % mod
+
+    elif TFG_II == 3:
+        for s in range(num_x_stage):
             num_tw_base = 1 << s
             base_offset = (1 << s) - 1
 
@@ -279,11 +289,39 @@ def twiddle_base_generator_lanes(mod, psi, n, BU, logN, logBU, K, TFG_II=2):
                 tw_x_base_lane1[idx] = (tw_x_base_lane0[idx] * rs0) % mod
                 tw_x_base_lane2[idx] = (tw_x_base_lane1[idx] * rs0) % mod
 
+    else:  # TFG_II == 4
+        for s in range(num_x_stage):
+            num_tw_base = 1 << s
+            base_offset = (1 << s) - 1
+
+            if s == 0:
+                rs = tw_l_base_lane0[num_l_stage - 3]
+            elif s == 1:
+                rs = tw_l_base_lane0[num_l_stage - 2]
+            elif s == 2:
+                rs = tw_l_base_lane0[num_l_stage - 1]
+            else:
+                rs = tw_x_base_lane0[(1 << (s - 3)) - 1]
+
+            tw_x_gamma[s] = (rs << K) // mod
+
+            # phase/base ratio R_s0 for lane generation
+            if s == 0:
+                rs0 = tw_l_base_lane0[num_l_stage - 1]
+            else:
+                rs0 = tw_x_base_lane0[(1 << (s - 1)) - 1]
+
+            for g in range(num_tw_base):
+                idx = base_offset + g
+                tw_x_base_lane1[idx] = (tw_x_base_lane0[idx] * rs0) % mod
+                tw_x_base_lane2[idx] = (tw_x_base_lane1[idx] * rs0) % mod
+                tw_x_base_lane3[idx] = (tw_x_base_lane2[idx] * rs0) % mod
+
     delta = (1 << K) - mod
     if delta <= 0:
         raise ValueError(f"Invalid DELTA derived from mod={mod}, K={K}")
 
-    return tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base_lane0, tw_x_base_lane1, tw_x_base_lane2, tw_x_gamma, delta
+    return tw_l_base_lane0, tw_l_base_lane1, tw_l_base_lane2, tw_l_base_lane3, tw_l_gamma, tw_x_base_lane0, tw_x_base_lane1, tw_x_base_lane2, tw_x_base_lane3, tw_x_gamma, delta
 
 def is_prime64(q) -> bool:
     """

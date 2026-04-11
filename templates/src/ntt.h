@@ -54,7 +54,7 @@ constexpr int num_l_stage = logN - (logBU + 1);
 
 constexpr int num_l_stage_ge1 = num_l_stage - 1;
 constexpr int num_l_stage_ge2 = num_l_stage - 2;
-#if TFG_II == 3
+#if TFG_II == 3 || TFG_II == 4
 constexpr int num_l_stage_ge3 = num_l_stage - 3;
 #endif
 
@@ -86,7 +86,7 @@ constexpr int tw_x_base_size = 2*BU-1;
 // {TWF_L_BASE}
 {TWF_L_BASE_LANE0}
 {TWF_L_BASE_LANE1}
-#if TFG_II == 3
+#if TFG_II == 3 || TFG_II == 4
 {TWF_L_BASE_LANE2}
 {TWF_L_BASE_LANE3}
 #endif
@@ -94,8 +94,11 @@ constexpr int tw_x_base_size = 2*BU-1;
 #if TFG_II != 1
 {TWF_X_BASE_LANE1}
 #endif
-#if TFG_II == 3
+#if TFG_II == 3 || TFG_II == 4
 {TWF_X_BASE_LANE2}
+#endif
+#if TFG_II == 4
+{TWF_X_BASE_LANE3}
 #endif
 {TWF_L_GAMMA}
 {TWF_X_GAMMA}

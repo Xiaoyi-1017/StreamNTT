@@ -265,7 +265,86 @@ void reduce_tw(Data A, Data B, Data gamma,  Data &Z){
 	Z = (Data)(r + (c ? (Dataplus)DELTA : Dataplus(0)));
 }
 
-#if TFG_II == 3
+#if TFG_II == 3 || TFG_II == 4
+#if TFG_II == 4
+// General case: current_stage > 2
+void tw_gen_L_s_ge3(const int stage, tapa::ostreams<Data, 4>&  tw_fifo) {
+#pragma HLS INLINE off
+	
+	//const Data L_BASE_s0 = tw_l_base[stage+2];
+		
+	// R_s0 only valid when stage > 0
+	// const Data R_s0 = tw_l_base[stage];
+	
+	const Data L_BASE[4] = {tw_l_base_lane0[stage+3], tw_l_base_lane1[stage+2], tw_l_base_lane2[stage+1], tw_l_base_lane3[stage+1]};
+#pragma HLS ARRAY_PARTITION variable=L_BASE complete
+		
+	// Twiddle ratio for this L-stage
+	const Data R_s = tw_l_base_lane0[stage];
+		
+	// Stride for this L-stage
+	const ap_uint<logDEPTH-3> shift = ap_uint<logDEPTH-3>(1 << (num_l_stage - 4 - stage));
+		
+	// Per-stream state
+	Data tw_local[4];
+#pragma HLS ARRAY_PARTITION variable=tw_local complete
+	tw_local[0] = L_BASE[0]; // first stream
+	tw_local[1] = L_BASE[1]; // second stream
+	tw_local[2] = L_BASE[2]; // third stream
+	tw_local[3] = L_BASE[3]; // forth stream
+		
+	ap_uint<logDEPTH-3> read_idx = 0;
+		
+	Data gamma = tw_l_gamma[stage];
+	
+	for(;;){
+#pragma HLS PIPELINE II=4
+		Data nxt_val[4];
+#pragma HLS ARRAY_PARTITION variable=nxt_val complete
+			
+		for (int i = 0; i < 4; ++i) {
+#pragma HLS UNROLL
+			// 1) Write out current twiddle (2 streams)
+			tw_fifo[i].write(tw_local[i]);
+			
+			// 2) Calculate candidate twiddle
+			Data tmp_nxt;
+			// reduce(tw_local[i], R_s, tmp_nxt);
+			reduce_tw(tw_local[i], R_s, gamma, tmp_nxt);
+			nxt_val[i] = tmp_nxt;	
+		}			
+			
+		// 3) Update the index, judge what to do next, preceed or reset to base
+		read_idx += shift;			
+		bool do_step_next = read_idx != 0;			
+		for (int i = 0; i < 4; ++i) {
+#pragma HLS UNROLL		
+			tw_local[i] = do_step_next ? nxt_val[i] : L_BASE[i];
+		}
+			
+	}
+
+}
+
+// General case: stage >= 3
+void tw_merge_ge3(const int stage, tapa::istreams<Data, 4>& tw_fifo, tapa::ostreams<Data, BU>&  tw_L) {
+	ap_uint<2> idx = 0;
+	Data tw_local;
+	for(;;){
+#pragma HLS PIPELINE II=1
+		// Alternately read from tw_fifo[0] / tw_fifo[1] / tw_fifo[2] / tw_fifo[3]
+		tw_local = tw_fifo[idx].read();
+		
+		// Broadcast NBU twiddles to NBU butterfly unit
+		for (int j = 0; j < BU; ++j) {
+#pragma HLS UNROLL
+				tw_L[j].write(tw_local);
+			}
+		idx++;
+	}
+}
+
+#elif TFG_II == 3
 // General case: current_stage > 2
 void tw_gen_L_s_ge3(const int stage, tapa::ostreams<Data, 3>&  tw_fifo) {
 #pragma HLS INLINE off
@@ -388,6 +467,8 @@ void tw_merge_ge3(const int stage, tapa::istreams<Data, 3>& tw_fifo, tapa::ostre
 	}
 }
 
+#endif
+
 void bf_unit_ge3(int stage_local, const int bf_id, tapa::istream<Data2>& input_stream, tapa::ostream<Data2>& output_stream, tapa::istream<Data>& tw_i) {
 #pragma HLS INLINE off
   int global_stage = stage_local + 3;  // local 0,1,2... => global 3,4,...
@@ -398,17 +479,22 @@ void bf_unit_ge3(int stage_local, const int bf_id, tapa::istream<Data2>& input_s
 void l_stage_s_ge3(int stage, tapa::istreams<Data2, BU>& input_stream, tapa::ostreams<Data2, BU>& output_stream){
 #pragma HLS INLINE off
 	// L-stage index = 3, 4, ...
-	
+
+#if TFG_II == 4
+	tapa::streams<Data, 4, 2> tw_fifo("tw_fifo");
+#elif TFG_II == 3
 	tapa::streams<Data, 3, 3> tw_fifo("tw_fifo");
-	
+#endif	
 	tapa::streams<Data, BU, 2> tw_L("twL");
 
 	// generators (II=3 each)
 	tapa::task()
-		.invoke<tapa::detach>(tw_gen_L_s_ge3, stage, tw_fifo) // A 4-lane twiddle generator (inner II=3) 
+		.invoke<tapa::detach>(tw_gen_L_s_ge3, stage, tw_fifo) // A 4-lane twiddle generator (inner II=3/4) 
 		.invoke<tapa::detach>(tw_merge_ge3, stage, tw_fifo, tw_L) // Merger: tw_fifo[0]-[3] -> BU tw_L[j] (overall II=1)
 		.invoke<tapa::detach, BU>(bf_unit_ge3, stage, tapa::seq(), input_stream, output_stream, tw_L); // NBU bf_units, keeping II=1
 }
+
+
 
 // Special case: stage == 2, where four streams involves constant tw_base streams
 void tw_gen_L_s2(const int stage, tapa::ostreams<Data, 4>&  tw_fifo) {
@@ -427,7 +513,11 @@ void tw_gen_L_s2(const int stage, tapa::ostreams<Data, 4>&  tw_fifo) {
 #pragma HLS ARRAY_PARTITION variable=L_BASE complete
 
 	for(;;){
+#if TFG_II == 3
 #pragma HLS PIPELINE II=3
+#else
+#pragma HLS PIPELINE II=4
+#endif
 		for (int i = 0; i < 4; ++i) {
 #pragma HLS UNROLL
 			tw_fifo[i].write(L_BASE[i]);
@@ -807,7 +897,140 @@ OUTPUT_LOOP:
 	}
 }
 
-#if TFG_II == 3
+#if TFG_II == 4
+void tw_gen_X(tapa::ostreams<Wide, 4 * num_x_stage>& tw_x_fifo) {
+		
+	Data tw_local0[num_x_stage][BU];
+	Data tw_local1[num_x_stage][BU];
+	Data tw_local2[num_x_stage][BU];
+	Data tw_local3[num_x_stage][BU];
+#pragma HLS ARRAY_PARTITION variable=tw_local0 dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local0 dim=2 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local1 dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local1 dim=2 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local2 dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local2 dim=2 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local3 dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=tw_local3 dim=2 complete
+
+	Data R_s[num_x_stage];
+#pragma HLS ARRAY_PARTITION variable=R_s complete
+	Data gamma_X[num_x_stage];
+#pragma HLS ARRAY_PARTITION variable=gamma_X complete
+
+	ap_uint<logDEPTH-2> i = 1;
+
+	// stage 0
+	R_s[0] = tw_l_base_lane0[num_l_stage-3];
+	gamma_X[0] = tw_x_gamma[0];
+	tw_local0[0][0] = tw_x_base_lane0[0];
+	tw_local1[0][0] = tw_x_base_lane1[0];
+	tw_local2[0][0] = tw_x_base_lane2[0];
+	tw_local3[0][0] = tw_x_base_lane3[0];
+
+	
+	// stage 1
+	R_s[1] = tw_l_base_lane0[num_l_stage-2];
+	gamma_X[1] = tw_x_gamma[1];
+	for (int g = 0; g < 2; ++g) {
+#pragma HLS UNROLL
+	    tw_local0[1][g] = tw_x_base_lane0[1 + g];
+	    tw_local1[1][g] = tw_x_base_lane1[1 + g];
+	    tw_local2[1][g] = tw_x_base_lane2[1 + g];
+	    tw_local3[1][g] = tw_x_base_lane3[1 + g];
+	}
+
+
+	// stage 2
+	R_s[2] = tw_l_base_lane0[num_l_stage-1];
+	gamma_X[2] = tw_x_gamma[2];
+	for (int g = 0; g < 4; ++g) {
+#pragma HLS UNROLL
+	    tw_local0[2][g] = tw_x_base_lane0[3 + g];
+	    tw_local1[2][g] = tw_x_base_lane1[3 + g];
+	    tw_local2[2][g] = tw_x_base_lane2[3 + g];
+	    tw_local3[2][g] = tw_x_base_lane3[3 + g];
+	}	
+	
+	for(int s = 3; s < num_x_stage; s++){
+#pragma HLS UNROLL
+		const int num_tw_base = 1 << s;
+		const int base_offset = (1 << s) - 1;
+		for(int g = 0; g < num_tw_base; ++g) {
+#pragma HLS UNROLL
+			tw_local0[s][g] = tw_x_base_lane0[base_offset + g];
+			tw_local1[s][g] = tw_x_base_lane1[base_offset + g];
+			tw_local2[s][g] = tw_x_base_lane2[base_offset + g];
+			tw_local3[s][g] = tw_x_base_lane3[base_offset + g];
+		}
+		R_s[s] = tw_x_base_lane0[(1<<(s-3))-1];
+		gamma_X[s] = tw_x_gamma[s];
+	}	
+
+	for(;;){
+#pragma HLS PIPELINE II = 4
+
+STAGE_LOOP:
+		for(int s = 0; s < num_x_stage; s++){
+#pragma HLS UNROLL
+			const int num_tw_base = 1 << s;
+			const int shift = logBU - s;
+			const int base_offset = (1 << s) - 1;
+			
+			Wide w0 = 0;
+			Wide w1 = 0;
+			Wide w2 = 0;
+			Wide w3 = 0;
+DISTRIBUTION_LOOP:
+			for(int idx = 0; idx < BU; idx++){
+#pragma HLS UNROLL
+				const int group_idx = idx >> shift;
+				w0.range((idx+1)*K-1, idx*K) = tw_local0[s][group_idx];
+				w1.range((idx+1)*K-1, idx*K) = tw_local1[s][group_idx];  
+				w2.range((idx+1)*K-1, idx*K) = tw_local2[s][group_idx];
+				w3.range((idx+1)*K-1, idx*K) = tw_local3[s][group_idx];         
+			}
+			tw_x_fifo[4 * s + 0].write(w0);
+			tw_x_fifo[4 * s + 1].write(w1);
+			tw_x_fifo[4 * s + 2].write(w2);
+			tw_x_fifo[4 * s + 3].write(w3);
+						
+TW_MUL_MOD_LOOP:			
+			for(int g = 0; g < num_tw_base; ++g) {
+#pragma HLS UNROLL
+				Data nxt0; reduce_tw(tw_local0[s][g], R_s[s], gamma_X[s], nxt0);
+				tw_local0[s][g] = (i)?nxt0:tw_x_base_lane0[base_offset+g];
+				Data nxt1; reduce_tw(tw_local1[s][g], R_s[s], gamma_X[s], nxt1);
+				tw_local1[s][g] = (i)?nxt1:tw_x_base_lane1[base_offset+g];
+				Data nxt2; reduce_tw(tw_local2[s][g], R_s[s], gamma_X[s], nxt2);
+				tw_local2[s][g] = (i)?nxt2:tw_x_base_lane2[base_offset+g];
+				Data nxt3; reduce_tw(tw_local3[s][g], R_s[s], gamma_X[s], nxt3);
+				tw_local3[s][g] = (i)?nxt3:tw_x_base_lane3[base_offset+g];
+			}
+				
+
+		}
+		i++;
+	}
+
+}
+
+void tw_merge_X(tapa::istreams<Wide, 4 * num_x_stage>& tw_x_fifo, tapa::ostreams<Wide, num_x_stage>& tw_X_W) {
+#pragma HLS INLINE off
+
+	ap_uint<2> phase = 0;
+
+	for (;;) {
+#pragma HLS PIPELINE II = 1
+		for (int s = 0; s < num_x_stage; ++s) {
+#pragma HLS UNROLL
+			tw_X_W[s].write(tw_x_fifo[4 * s + phase].read());
+		}
+		phase = phase + 1;
+	}
+}
+
+#elif TFG_II == 3
 void tw_gen_X(tapa::ostreams<Wide, 3 * num_x_stage>& tw_x_fifo) {
 		
 	Data tw_local0[num_x_stage][BU];
@@ -1100,6 +1323,8 @@ void x_stages_top(tapa::istreams<Data2, BU>& input_streams, tapa::ostreams<Data2
 	tapa::streams<Wide, 2 * num_x_stage, 2> tw_x_fifo("twXfifo");
 #elif TFG_II == 3
 	tapa::streams<Wide, 3 * num_x_stage, 2> tw_x_fifo("twXfifo");
+#elif TFG_II == 4
+	tapa::streams<Wide, 4 * num_x_stage, 2> tw_x_fifo("twXfifo");
 #endif
 	tapa::task()
 #if TFG_II == 1
@@ -1596,7 +1821,7 @@ void ntt_core(tapa::istreams<Data2, BU> core_istreams, tapa::ostreams<Data2, BU>
 		.invoke<tapa::detach>(l_stage_s0, 0, core_streams, core_streams)
 		.invoke<tapa::detach>(l_stage_s1, 1, core_streams, core_streams)
 #if NUM_L_stage > 2 // num_l_stage > 2
-#if TFG_II == 3		
+#if TFG_II == 3	|| TFG_II == 4	
 		.invoke<tapa::detach>(l_stage_s2, 2, core_streams, core_streams)
 		.invoke<tapa::detach, num_l_stage_ge3>(l_stage_s_ge3, tapa::seq(), core_streams, core_streams) // After splitting, the number of batches should minus 3
 #else

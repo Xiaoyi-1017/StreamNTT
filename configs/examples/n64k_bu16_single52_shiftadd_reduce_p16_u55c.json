@@ -1,0 +1,17 @@
+{
+  "name": "single52_shiftadd_reduce",
+  "N": 65536,
+  "BU": 16,
+  "CH": 8,
+  "RATE": 0.5,
+  "primes": [
+    "TII_33"
+  ],
+  "tfg_seg_len": 16,
+  "shiftadd": "reduce",
+  "icbu": {
+    "storage_recipe": "auto",
+    "dse_mode": "recommend",
+    "device": "u55c"
+  }
+}

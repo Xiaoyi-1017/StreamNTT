@@ -1,0 +1,17 @@
+{
+  "name": "ti1_barrett",
+  "N": 131072,
+  "BU": 8,
+  "CH": 4,
+  "RATE": 0.5,
+  "primes": [
+    "TI_1"
+  ],
+  "tfg_seg_len": 16,
+  "shiftadd": "none",
+  "icbu": {
+    "storage_recipe": "auto",
+    "dse_mode": "apply",
+    "device": "u55c"
+  }
+}

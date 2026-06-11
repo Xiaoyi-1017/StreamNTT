@@ -1,0 +1,114 @@
+#ifndef NTT_H
+#define NTT_H
+
+#include <cmath>
+#include <algorithm>
+#include "hls_vector.h"
+#include "hls_stream.h"
+// AP_INT_MAX_W must be set before ap_int.h when Wide = ap_uint<BU*K> > 1024 bits.
+// Set to 4096 to support up to BU=64, K=62 (3968 bits).
+#ifndef AP_INT_MAX_W
+#define AP_INT_MAX_W 4096
+#endif
+#include "ap_int.h"
+#include <tapa.h>
+#include <cinttypes>
+
+constexpr int K = {K};
+
+using HostData = uint64_t;
+using Data = ap_uint<K>;
+using Data2 = ap_uint<K*2>;
+//Extesion
+using Dataplus = ap_uint<K+1>;
+using Dataplus2 = ap_uint<K+2>;
+using Dataplus3 = ap_uint<K+3>;
+using Data2plus = ap_uint<2*K+1>;
+
+constexpr int DataCHLen = 64 / 8; // 64 / sizeof(Data)
+constexpr int EffDataCHLen = {EffDataCHLen};
+
+using DataVec = tapa::vec_t<HostData, DataCHLen>;
+
+template <typename T>
+using bits = ap_uint<tapa::widthof<T>()>;
+
+constexpr int log2(int x) {{
+    return (x <= 1) ? 0 : 1 + log2(x / 2);
+}}
+
+// Number of coefficients
+constexpr int n = {N};
+constexpr int logN = {logN};
+
+constexpr int BU = {BU};
+constexpr int logBU = {logBU};
+
+// NUM_X_STAGE is available to both the C preprocessor (#if NUM_X_STAGE > 3)
+// and C++ runtime (num_x_stage). num_x_stage is a plain constexpr int and
+// cannot be used inside #if because the preprocessor does not evaluate it.
+#define NUM_X_STAGE ({logBU} + 1)
+
+// WIDTH: number of coeffs processed in parallel (per NTT CORE)
+constexpr int WIDTH = 2*BU;
+constexpr int DEPTH = n / WIDTH;
+constexpr int logDEPTH = {logDEPTH};
+
+constexpr int num_x_stage = NUM_X_STAGE;
+constexpr int num_l_stage = logN - (logBU + 1);
+#define NUM_L_stage {NUM_L_stage}
+
+// Work 2: per-stage segmented TFG + TFR. No X_SPLIT3 constants needed.
+
+constexpr int num_l_stage_ge1 = num_l_stage - 1;
+constexpr int num_l_stage_ge2 = num_l_stage - 2;
+constexpr int num_l_stage_ge3 = num_l_stage - 3;  // kept for X-stage index arithmetic
+
+// Segmented TFG Phase 1: stage 3 = 8-entry table; stages >= 4 = base+ratio completion.
+#define TFG_SEG_LEN {TFG_SEG_LEN}
+#define NUM_L_STAGE_GE4 ({NUM_L_stage} - 4)
+constexpr int num_l_stage_ge4 = (num_l_stage > 4) ? (num_l_stage - 4) : 0;
+constexpr int NUM_SEG_BLOCKS = DEPTH / TFG_SEG_LEN;
+static_assert(DEPTH % TFG_SEG_LEN == 0, "TFG_SEG_LEN must divide DEPTH");
+// Flattened stage-0..3 twiddle table: sum(2^s for s=0..3) = 15 entries.
+constexpr int TW_L_BASE_TABLE_SIZE = 15;
+
+constexpr int CH = {CH};
+
+constexpr int NUM_CORE = EffDataCHLen*CH / (2*BU);
+
+constexpr int GROUP_NUM = {GROUP_NUM}; //std::min(CH, NUM_CORE);
+#define GROUP_CH_NUM {GROUP_CH_NUM}
+//constexpr int GROUP_CH_NUM = CH / GROUP_NUM;
+constexpr int GROUP_CORE_NUM = NUM_CORE / GROUP_NUM;
+
+#if {MCH} // GROUP_CH_NUM > 1
+#define MCH
+#endif
+
+constexpr int DRAM_CORE_WIDTH_RATIO = DataCHLen / (2*BU);
+constexpr int CORE_DRAM_WIDTH_RATIO = (2*BU) / DataCHLen;
+
+constexpr int POLY_FIFO_DEPTH_S = n / DataCHLen;
+constexpr int POLY_FIFO_DEPTH_M = n / (2*BU);
+
+// Small pre-computed basic twiddle factor vectors
+constexpr int tw_x_base_size = 2*BU-1;
+
+using Wide = ap_uint<BU * K>;
+#define Match_Delay
+
+// Prime-indexed parameter library
+#include "ntt_primes.h"
+
+// STREAMNTT_SHIFTADD_CONFIG == 1: use generated shift-add reducer.
+// STREAMNTT_SHIFTADD_CONFIG == 0: use default reducer.
+{SHIFTADD_INCLUDE_BLOCK}
+
+// Bypass input_mem_stage with host-side pre-permutation.
+// Override at compile time: tapa g++ ... -DHOST_PREPERMUTE_INPUT=1
+#ifndef HOST_PREPERMUTE_INPUT
+#define HOST_PREPERMUTE_INPUT 1
+#endif
+
+#endif // NTT_H

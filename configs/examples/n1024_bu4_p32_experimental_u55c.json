@@ -1,0 +1,12 @@
+{
+  "name": "p32_experimental",
+  "N": 1024,
+  "BU": 4,
+  "CH": 4,
+  "RATE": 0.5,
+  "primes": [
+    "TI_1"
+  ],
+  "tfg_seg_len": 32,
+  "shiftadd": "none"
+}

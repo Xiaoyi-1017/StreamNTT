@@ -1,0 +1,17 @@
+{
+  "name": "single52_barrett",
+  "N": 65536,
+  "BU": 16,
+  "CH": 8,
+  "RATE": 0.5,
+  "primes": [
+    "TII_33"
+  ],
+  "tfg_seg_len": 16,
+  "shiftadd": "none",
+  "icbu": {
+    "storage_recipe": "2U2B",
+    "dse_mode": "report",
+    "device": "u55c"
+  }
+}

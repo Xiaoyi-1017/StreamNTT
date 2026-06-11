@@ -50,23 +50,36 @@ Requirements: Python 3 with `pip install -r requirements.txt` (numpy, sympy), an
 TAPA + Vitis HLS environment for the build/simulation flows.
 
 ```bash
-# 1) Generate a case (config-driven; no environment variables needed)
+#Generate a case (config-driven; no environment variables needed)
 python3 generate_code.py --config configs/examples/n64k_bu16_single52_barrett_p16_u55c.json --force
-
-# 2) Software build + run
 cd generated/N65536_BU16_CH8_QK52_single52_barrett
-make all TARGET=sw
-make run TARGET=sw NUM=1
-
-# 3) Optional: XO build + RTL cosimulation (heavier)
-make all TARGET=xo
-make compile                      # builds the host runner used by the XO simulation
-make run TARGET=xo NUM=10
 ```
 
-Notes on the XO flow: `make compile` (an alias of the software build) must run before
-`make run TARGET=xo`, because the XO simulation is driven by the host executable.
-Waveform capture is on by default; append `SAVE_WAVEFORM=0` to `make run TARGET=xo`
+You can use the Makefile for compilation & execution.
+We recommend that you use Rapidstream to achieve higher clock frequency, but you could only use the traditional Vitis flow.
+
+HOST Compilation
+```bash
+make all TARGET=sw
+```
+Synthesize and generate xo file
+```bash
+make all TARGET=xo
+```
+Generate bitstream from xo file (Vitis only, no Rapidstream)
+```bash
+make all TARGET=hw
+```
+Optimize xo file with Rapidstream and generate bitstream (recommended)
+```bash
+make all TARGET=hw-opt
+```
+Simulation / Onboard verification (NUM = number of polynomials)
+```bash
+make run TARGET={sw | xo | hw | hw-opt} NUM=10000
+```
+
+You should see **PASSED!** message after running on-board verification. Note: Waveform capture is on by default; append `SAVE_WAVEFORM=0` to `make run TARGET=xo`
 for a faster run without a waveform database.
 
 ## Configuration-driven DSE / ICBU storage

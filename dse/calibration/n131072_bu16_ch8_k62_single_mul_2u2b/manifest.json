@@ -1,0 +1,37 @@
+{
+  "device": "u55c",
+  "N": 131072,
+  "BU": 16,
+  "CH": 8,
+  "K": 62,
+  "NUM_CORE": 1,
+  "prime_set": {
+    "count": 1,
+    "mode": "single-prime cyclic",
+    "values": [2305843009224179713],
+    "aliases": ["TI_9"]
+  },
+  "shiftadd": "mul",
+  "target_clock": "3.33ns",
+  "source_phase": "bundled U55C calibration corpus",
+  "source_phase_tag": "single_prime",
+  "included_reports": [],
+  "storage_recipe": "2U2B",
+  "functional_status": "PASS",
+  "functional_status_source": "bundled_validation_record",
+  "background_design_minus_icbu": {
+    "BRAM_18K": 264,
+    "URAM": 512,
+    "DSP": 1449,
+    "LUT": 219563,
+    "FF": 242129
+  },
+  "measured_rapidstream_design": {
+    "vertices": 806,
+    "BRAM_18K": 2952,
+    "URAM": 896,
+    "DSP": 3561,
+    "LUT": 546443,
+    "FF": 535137
+  }
+}

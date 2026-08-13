@@ -1,0 +1,15 @@
+{
+  "name": "multiprime_shiftadd_mul",
+  "N": 131072,
+  "BU": 4,
+  "CH": 2,
+  "RATE": 0.5,
+  "primes": ["TII_33", "TII_34"],
+  "tfg_seg_len": 16,
+  "shiftadd": "mul",
+  "icbu": {
+    "storage_recipe": "2U2B",
+    "dse_mode": "off",
+    "device": "u55c"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "mixed_barrett",
+  "N": 131072,
+  "BU": 4,
+  "CH": 2,
+  "RATE": 0.5,
+  "primes": ["TII_33", "TI_1"],
+  "tfg_seg_len": 16,
+  "shiftadd": "none"
+}

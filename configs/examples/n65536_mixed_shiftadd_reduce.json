@@ -1,0 +1,15 @@
+{
+  "name": "mixed_shiftadd_reduce",
+  "N": 65536,
+  "BU": 4,
+  "CH": 2,
+  "RATE": 0.5,
+  "primes": ["TII_33", "TI_9"],
+  "tfg_seg_len": 16,
+  "shiftadd": "reduce",
+  "icbu": {
+    "storage_recipe": "2U2B",
+    "dse_mode": "off",
+    "device": "u55c"
+  }
+}

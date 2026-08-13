@@ -1,0 +1,9 @@
+{
+  "name": "barrett",
+  "N": 65536,
+  "BU": 4,
+  "CH": 2,
+  "RATE": 0.5,
+  "primes": ["TI_1"],
+  "tfg_seg_len": 16
+}

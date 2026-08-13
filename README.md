@@ -1,8 +1,8 @@
-# StreamNTT — Segmented Multi-Prime NTT Generator
+# StreamNTT
 
 StreamNTT generates high-throughput streaming FPGA accelerators for
 number-theoretic transforms. The generated TAPA/Vitis HLS design supports
-multi-prime execution, HBM-attached data movement, and segmented on-the-fly
+multi-prime execution, HBM-attached data movement, and on-the-fly
 twiddle generation.
 
 ## Generated architecture
@@ -17,13 +17,13 @@ X-stage:        Feedback TFG -> TFR -> TFS -> BU
 
 | Unit | Role |
 |---|---|
-| Feedback TFG | Advances the segmented base recurrence |
-| TFR | Reconstructs per-cycle twiddles within each recurrence segment |
+| Feedback TFG | Advances the base recurrence |
+| TFR | Reconstructs per-cycle twiddles within each recurrence |
 | TFS | Reconstructs spatial twiddle factors across X-stage butterfly lanes |
 | BU / ICBU | Performs butterfly arithmetic and provides inter-stage ping-pong storage |
 
 `tfg_seg_len` is the public recurrence-segment period. Early L-stages use compact
-tables; later L-stages and all X-stages use the segmented recurrence path. A generated
+tables; later L-stages and all X-stages use the recurrence path. A generated
 multi-prime design switches its prime-indexed constants at polynomial boundaries.
 Channel geometry can replicate independent cores while preserving the same per-core
 pipeline.
